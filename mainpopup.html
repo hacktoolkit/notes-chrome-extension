@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html>
     <head>
         <link rel="stylesheet" href="mainpopup.css">
@@ -17,11 +18,25 @@
         <div class="input__form__container container">
             <div class="row">
                 <div class="input-field">
+                <input value="" id="note__main__url" type="text" class="validate">
+                <label class="active" for="note__main__url">URL</label>
+                </div>
+            </div>
+            <div class="row">
+                <div class="input-field">
                 <input value="" id="note__title" type="text" class="validate">
                 <label class="active" for="note__title">URL Title</label>
                 </div>
             </div>
+            <div class="row">
+                <div class="input-field">
+                  <textarea id="note__body" class="materialize-textarea"></textarea>
+                  <label for="note__body">Notes</label>
+                </div>
+            </div>
+            <a class="blue lighten-1 waves-effect waves-light btn-small"><i class="material-icons left">add</i>ADD</a>
         </div>
+        <scipt src="mainpopup.js"></scipt>
         <script type="text/javascript" src="js/materialize.min.js"></script>
     </body>
 </html>

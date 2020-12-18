@@ -1,22 +1,23 @@
 {
-    "name": "Chrome Notes Extension",
-    "description": "Chrome extension to allow users to easily take and store notes on URLs directly on the browser.",
-    "version": "1.0",
-    "manifest_version": 2,
-    "browser_action": {
-        "default_popup": "mainpopup.html"
-    },
-    "background": {
-        "scripts": ["backgroundScriptOnInstall.js"],
-        "persistent": false
-    },
-    "commands": {
-        "_execute_browser_action": {
-          "suggested_key": {
-            "default": "Ctrl+Shift+N",
-            "mac": "MacCtrl+Shift+N"
-          },
-          "description": "Opens the extension popup with the following key shortcut."
-        }
+  "name": "Chrome Notes Extension",
+  "description": "Chrome extension to allow users to easily take and store notes on URLs directly on the browser.",
+  "version": "1.0",
+  "manifest_version": 2,
+  "browser_action": {
+    "default_popup": "mainpopup.html"
+  },
+  "background": {
+    "scripts": ["backgroundScriptOnInstall.js"],
+    "persistent": false
+  },
+  "permissions": ["declarativeContent", "storage", "tabs"],
+  "commands": {
+    "_execute_browser_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+N",
+        "mac": "MacCtrl+Shift+N"
+      },
+      "description": "Opens the extension popup with the following key shortcut."
     }
+  }
 }
