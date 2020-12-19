@@ -7,9 +7,6 @@
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
         <!--Import materialize.css-->
         <link type="text/css" rel="stylesheet" href="css/materialize.min.css"  media="screen,projection"/>
-
-        <!--Let browser know website is optimized for mobile-->
-        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     </head>
     <body>
         <nav class="extension__header blue lighten-1">
@@ -18,14 +15,14 @@
         <div class="input__form__container container">
             <div class="row">
                 <div class="input-field">
-                <input value="" id="note__main__url" type="text" class="validate">
-                <label class="active" for="note__main__url">URL</label>
+                    <input value="" id="note__main__url" type="text" class="validate">
+                    <label class="active" for="note__main__url">URL</label>
                 </div>
             </div>
             <div class="row">
                 <div class="input-field">
-                <input value="" id="note__title" type="text" class="validate">
-                <label class="active" for="note__title">URL Title</label>
+                    <input value="" id="note__title" type="text" class="validate">
+                    <label class="active" for="note__title">URL Title</label>
                 </div>
             </div>
             <div class="row">
@@ -34,9 +31,10 @@
                   <label for="note__body">Notes</label>
                 </div>
             </div>
-            <a class="blue lighten-1 waves-effect waves-light btn-small"><i class="material-icons left">add</i>ADD</a>
+            <a class="blue lighten-1 waves-effect waves-light btn-small" onclick="insertURL()" ><i class="material-icons left">add</i>ADD</a>
         </div>
-        <scipt src="mainpopup.js"></scipt>
+
+        <script src="jquery.js"></script>
         <script type="text/javascript" src="js/materialize.min.js"></script>
     </body>
 </html>

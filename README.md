@@ -17,4 +17,4 @@ These are the core components of the application.
 
 The core languages being used will be HTML, CSS, and JavaScript.
 Eloquent JavaScript - Execellent resource and available online for free.
-Let's use Flexbox for styling layouts. 
+Let's use Flexbox for styling layouts.
