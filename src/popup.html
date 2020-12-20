@@ -25,8 +25,26 @@
     </nav>
 
     <div class="container" id="main__add__section">
-      <textarea id="notes-content" class="form-control"></textarea>
-      <button id="save-button" type="button" class="btn-primary">Save</button>
+      <div class="mb-2">
+        <div class="row">
+          <div class="col-sm-2 fill nopadding">
+            <img src="#" id="currentTabImage" class="img-thumbnail" alt="Tab Image"/>
+          </div>
+          <div class="col-sm-10">
+            <label for="currentTabURL" class="form-label">Current URL</label>
+            <input class="form-control" id="currentTabURL">
+          </div>
+        </div>
+      </div>
+      <div class="mb-2">
+        <label for="currentTabTitle" class="form-label">Title</label>
+        <input class="form-control" id="currentTabTitle">
+      </div>
+      <div class="mb-2">
+        <label for="notes-content" class="form-label">Notes</label>
+        <textarea id="notes-content" class="form-control"></textarea>
+      </div>
+      <button id="save-button" type="button" class="btn btn-dark">Save</button>
     </div>
     <div class="alerts"></div>
 
