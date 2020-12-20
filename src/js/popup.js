@@ -1,4 +1,4 @@
-$(function() {
+$(function () {
     // TODO: figure out a namespace/naming convention for special keys
     const KEY_NOTES_URLS = '__NOTES_URLS__';
 
@@ -19,21 +19,24 @@ $(function() {
 
     function getPreviouslySavedNotes() {
         // https://developer.chrome.com/docs/extensions/reference/storage/
-        chrome.storage.sync.get([KEY_NOTES_URLS, CURRENT_URL], function(result) {
-            // re-populate notes for current page
-            const value = result[CURRENT_URL];
-            $('#notes-content').val(value);
+        chrome.storage.sync.get(
+            [KEY_NOTES_URLS, CURRENT_URL],
+            function (result) {
+                // re-populate notes for current page
+                const value = result[CURRENT_URL];
+                $('#notes-content').val(value);
 
-            // re-populate all previous URLs
-            const urls = result[KEY_NOTES_URLS] || {};
-            NOTES_URLS = urls;
+                // re-populate all previous URLs
+                const urls = result[KEY_NOTES_URLS] || {};
+                NOTES_URLS = urls;
 
-            const urlLinks = _.map(_.keys(NOTES_URLS), (url) => {
-                return '<li><a href="' + url + '">' + url + '</a></li>';
-            });
+                const urlLinks = _.map(_.keys(NOTES_URLS), (url) => {
+                    return '<li><a href="' + url + '">' + url + '</a></li>';
+                });
 
-            $('#notes-urls').html('<ul>' + urlLinks.join('') + '</ul>');
-        });
+                $('#notes-urls').html('<ul>' + urlLinks.join('') + '</ul>');
+            }
+        );
     }
 
     function saveNotesForPage() {
@@ -54,7 +57,7 @@ $(function() {
 
             kv[KEY_NOTES_URLS] = NOTES_URLS;
 
-            chrome.storage.sync.set(kv, function() {
+            chrome.storage.sync.set(kv, function () {
                 console.log(CURRENT_URL, value);
                 showSuccessAlert();
             });
@@ -62,15 +65,12 @@ $(function() {
     }
 
     function getActiveWindowTabURL() {
-        chrome.tabs.query(
-            { active: true, lastFocusedWindow: true },
-            (tabs) => {
-                const url = tabs[0].url;
+        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+            const url = tabs[0].url;
 
-                CURRENT_URL = url;
-                getPreviouslySavedNotes();
-            }
-        );
+            CURRENT_URL = url;
+            getPreviouslySavedNotes();
+        });
     }
 
     function initEventHandlers() {

@@ -1,5 +1,9 @@
 body {
     width: 600px;
     text-align: center;
-    padding: 20px 20px;
+}
+
+.container {
+    margin-top: 20px;
+    margin-bottom: 20px;
 }
