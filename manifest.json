@@ -1,28 +1,42 @@
 {
-  "name": "Chrome Notes Extension",
-  "description": "Chrome extension to allow users to easily take and store notes on URLs directly on the browser.",
-  "version": "1.0",
   "manifest_version": 2,
+
+  "name": "Chrome Notes Extension",
+  "version": "0.1.0",
+
+  "author": "Hacktoolkit (@hacktoolkit)",
+
+  "description": "Chrome extension to allow users to easily take and store notes on URLs directly on the browser.",
+
   "browser_action": {
-    "default_popup": "mainpopup.html",
     "default_icon": {
-      "16": "images/get_started16.png",
-      "32": "images/get_started32.png",
-      "48": "images/get_started48.png",
-      "128": "images/get_started128.png"
-    }
+      "16": "img/get_started16.png",
+      "32": "img/get_started32.png",
+      "48": "img/get_started48.png",
+      "128": "img/get_started128.png"
+    },
+    "default_popup": "src/popup.html",
+    "default_title": "Chrome Notes"
   },
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["jquery.js", "mainpopup.js"]
-    }
-  ],
+
+  "options_ui": {
+    "page": "src/options.html",
+    "chrome_style": true
+  },
+
   "background": {
-    "scripts": ["backgroundScriptOnInstall.js"],
+    "scripts": [
+      "backgroundScriptOnInstall.js"
+    ],
     "persistent": false
   },
-  "permissions": ["declarativeContent", "storage", "tabs"],
+
+  "permissions": [
+    "declarativeContent",
+    "storage",
+    "tabs"
+  ],
+
   "commands": {
     "_execute_browser_action": {
       "suggested_key": {
