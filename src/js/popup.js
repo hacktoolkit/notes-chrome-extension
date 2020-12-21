@@ -12,8 +12,6 @@ $(function () {
             CURRENT_TAB_TITLE = tabs[0].title;
             CURRENT_TAB_ICON = tabs[0].favIconUrl ? tabs[0].favIconUrl : '';
 
-            console.log(CURRENT_TAB_URL, CURRENT_TAB_TITLE, CURRENT_TAB_ICON);
-
             $('#currentTabURL').val(CURRENT_TAB_URL);
             $('#currentTabTitle').val(CURRENT_TAB_TITLE);
             $('#currentTabImage').attr('src', CURRENT_TAB_ICON);
@@ -84,30 +82,8 @@ $(function () {
         }
     };
 
-    const fetchAllPreviousNotes = function () {
-        chrome.storage.sync.get(
-            ['CHROME_STORAGE_ALL_NOTES_KEY'],
-            function (result) {
-                ALL_NOTES_OBJECT = result.CHROME_STORAGE_ALL_NOTES_KEY;
-                console.log(ALL_NOTES_OBJECT);
-                let urlListItems = [];
-                for (const URL in ALL_NOTES_OBJECT) {
-                    urlValue = ALL_NOTES_OBJECT[URL].noteUrl;
-                    urlImage = ALL_NOTES_OBJECT[URL].noteImage;
-                    urlTitle = ALL_NOTES_OBJECT[URL].noteTitle;
-                    urlText = ALL_NOTES_OBJECT[URL].noteText;
-                    //let urlTableItemHTML = `<tr><td>${urlTitle}</td><td>${urlValue}</td><td>${urlText}</td></tr>`;
-                    let urlTableItemHTML = `<tr><td>${urlTitle}</td><td><a href=${urlValue} target="_blank">${urlValue}</a></td><td>${urlText}</td></tr>`;
-                    urlListItems.push(urlTableItemHTML);
-                }
-                $('#all-notes-table-body').html(urlListItems.join(''));
-            }
-        );
-    };
-
     const init = function () {
         fetchCurrentTabData();
-        fetchAllPreviousNotes();
     };
 
     const initEventHandlers = function () {
