@@ -5,7 +5,7 @@
 <head>
   <!--Import Google Icon Font-->
   <link rel="stylesheet" type="text/css" href="vendor/bootstrap-4.5.2.min.css" />
-  <link rel="stylesheet" type="text/css" href="css/popup.css" />
+  <link rel="stylesheet" type="text/css" href="css/allnotes.css" />
 </head>
 
 <body>
@@ -27,8 +27,20 @@
     </div>
   </nav>
   <!-- The actual start of the section -->
-  <div class="container" id="main__note__list">
-    <div id="notes-urls"></div>
+  <div class="notes-container" id="all-notes">
+    <table class="table table-light table-striped table-hover table-sm" id="all-notes-table">
+      <thead id="all-notes-table-header">
+        <tr class="row">
+          <th class="col-sm-2">Title</th>
+          <th class="col-sm-2">URL</th>
+          <th class="col-sm-6">Notes</th>
+          <th class="col-sm-1">Delete</th>
+          <th class="col-sm-1">Edit</th>
+        </tr>
+      </thead>
+      <tbody id="all-notes-table-body">
+      </tbody>
+    </table>
   </div>
 
   <div class="alerts"></div>
@@ -38,6 +50,7 @@
   <script src="vendor/popper-2.6.0.min.js"></script>
   <script src="vendor/bootstrap-4.5.2.min.js"></script>
   <script src="js/popup.js"></script>
+  <script src="js/allnotes.js"></script>
 </body>
 
 </html>
