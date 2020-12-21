@@ -1,107 +1,119 @@
 $(function () {
-    // TODO: figure out a namespace/naming convention for special keys
-    const KEY_NOTES_URLS = '__NOTES_URLS__';
+    let CURRENT_TAB_URL = '';
+    let CURRENT_TAB_TITLE = '';
+    let CURRENT_TAB_ICON = '';
+    let ALL_NOTES_OBJECT = {};
+    const CHROME_STORAGE_ALL_NOTES_KEY = '__ALL_NOTE_DATA__';
 
-    let CURRENT_URL = null;
-    let CURRENT_TITLE = null;
-    let CURRENT_IMAGE_ICON = null;
-    let NOTES_URLS = null;
+    const fetchCurrentTabData = function () {
+        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+            CURRENT_TAB_URL = tabs[0].url;
 
-    function showSuccessAlert() {
+            CURRENT_TAB_TITLE = tabs[0].title;
+            CURRENT_TAB_ICON = tabs[0].favIconUrl ? tabs[0].favIconUrl : '';
+
+            console.log(CURRENT_TAB_URL, CURRENT_TAB_TITLE, CURRENT_TAB_ICON);
+
+            $('#currentTabURL').val(CURRENT_TAB_URL);
+            $('#currentTabTitle').val(CURRENT_TAB_TITLE);
+            $('#currentTabImage').attr('src', CURRENT_TAB_ICON);
+        });
+
+        chrome.storage.sync.get(
+            ['CHROME_STORAGE_ALL_NOTES_KEY'],
+            function (result) {
+                ALL_NOTES_OBJECT = result.CHROME_STORAGE_ALL_NOTES_KEY;
+                if (CURRENT_TAB_URL in ALL_NOTES_OBJECT) {
+                    $('#currentTabURL').val(
+                        ALL_NOTES_OBJECT[CURRENT_TAB_URL].noteUrl
+                    );
+                    $('#currentTabTitle').val(
+                        ALL_NOTES_OBJECT[CURRENT_TAB_URL].noteTitle
+                    );
+                    $('#notes-content').val(
+                        ALL_NOTES_OBJECT[CURRENT_TAB_URL].noteText
+                    );
+                }
+            }
+        );
+    };
+
+    const showSuccessAlert = function () {
         $('.alerts').html(
             '<div class="alert alert-success" role="alert">Saved!</div>'
         );
-    }
+    };
 
-    function showErrorAlert() {
+    const showErrorAlert = function () {
         $('.alerts').html(
-            '<div class="alert alert-danger" role="alert">Fail :(</div>'
+            '<div class="alert alert-success" role="alert">Error in Saving!</div>'
         );
-    }
+    };
 
-    function saveNotesForPage() {
-        // https://developer.chrome.com/docs/extensions/reference/storage/
-        if (CURRENT_URL === null) {
-            showErrorAlert();
-        } else if (NOTES_URLS === null) {
+    const saveNotesForCurrentTab = function () {
+        if (CURRENT_TAB_URL === '') {
             showErrorAlert();
         } else {
-            const value = $('#notes-content').val();
+            const noteUrl = $('#currentTabURL').val();
+            const noteImage = $('#currentTabImage').attr('src');
+            const noteTitle = $('#currentTabTitle').val();
+            const noteText = $('#notes-content').val();
+            // TODO: Date and Time Properties
 
-            // TODO: encrypt the value
-            // TODO: maybe also encrypt the key (url)
-            const kv = {};
-            kv[CURRENT_URL] = value;
+            const noteMetaDataObject = {
+                noteUrl: noteUrl,
+                noteImage: noteImage,
+                noteTitle: noteTitle,
+                noteText: noteText,
+            };
 
-            NOTES_URLS[CURRENT_URL] = true;
+            ALL_NOTES_OBJECT[CURRENT_TAB_URL] = noteMetaDataObject;
 
-            kv[KEY_NOTES_URLS] = NOTES_URLS;
-
-            chrome.storage.sync.set(kv, function () {
-                console.log(CURRENT_URL, value);
-                showSuccessAlert();
-            });
+            chrome.storage.sync.set(
+                { CURRENT_TAB_URL: noteMetaDataObject },
+                function () {
+                    showSuccessAlert();
+                }
+            );
+            chrome.storage.sync.set(
+                { CHROME_STORAGE_ALL_NOTES_KEY: ALL_NOTES_OBJECT },
+                function () {
+                    showSuccessAlert();
+                }
+            );
         }
-    }
+    };
 
-    function getPreviouslySavedNotes() {
-        // https://developer.chrome.com/docs/extensions/reference/storage/
+    const fetchAllPreviousNotes = function () {
         chrome.storage.sync.get(
-            [KEY_NOTES_URLS, CURRENT_URL],
+            ['CHROME_STORAGE_ALL_NOTES_KEY'],
             function (result) {
-                // re-populate notes for current page
-                const value = result[CURRENT_URL];
-                $('#notes-content').val(value);
-
-                // re-populate all previous URLs
-                const urls = result[KEY_NOTES_URLS] || {};
-                NOTES_URLS = urls;
-
-                const urlLinks = _.map(_.keys(NOTES_URLS), (url) => {
-                    return (
-                        '<li class="list-group-item"><a href="' +
-                        url +
-                        '">' +
-                        url +
-                        '</a></li>'
-                    );
-                });
-
-                $('#notes-urls').html(
-                    '<ul class="list-group">' + urlLinks.join('') + '</ul>'
-                );
+                ALL_NOTES_OBJECT = result.CHROME_STORAGE_ALL_NOTES_KEY;
+                console.log(ALL_NOTES_OBJECT);
+                let urlListItems = [];
+                for (const URL in ALL_NOTES_OBJECT) {
+                    urlValue = ALL_NOTES_OBJECT[URL].noteUrl;
+                    urlImage = ALL_NOTES_OBJECT[URL].noteImage;
+                    urlTitle = ALL_NOTES_OBJECT[URL].noteTitle;
+                    urlText = ALL_NOTES_OBJECT[URL].noteText;
+                    //let urlTableItemHTML = `<tr><td>${urlTitle}</td><td>${urlValue}</td><td>${urlText}</td></tr>`;
+                    let urlTableItemHTML = `<tr><td>${urlTitle}</td><td><a href=${urlValue} target="_blank">${urlValue}</a></td><td>${urlText}</td></tr>`;
+                    urlListItems.push(urlTableItemHTML);
+                }
+                $('#all-notes-table-body').html(urlListItems.join(''));
             }
         );
-    }
+    };
 
-    function getActiveWindowTabURL() {
-        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-            const url = tabs[0].url;
-            const tabTitle = tabs[0].title;
-            const tabIconImage = tabs[0].favIconUrl;
-            console.log(tabs[0]);
-            CURRENT_URL = url;
-            CURRENT_TITLE = tabTitle;
-            CURRENT_IMAGE_ICON = tabIconImage;
-            console.log(CURRENT_IMAGE_ICON);
-            console.log(typeof CURRENT_IMAGE_ICON);
+    const init = function () {
+        fetchCurrentTabData();
+        fetchAllPreviousNotes();
+    };
 
-            $('#currentTabURL').val(CURRENT_URL);
-            $('#currentTabTitle').val(CURRENT_TITLE);
-            $('#currentTabImage').attr('src', CURRENT_IMAGE_ICON);
+    const initEventHandlers = function () {
+        $('#save-button').click(saveNotesForCurrentTab);
+    };
 
-            getPreviouslySavedNotes();
-        });
-    }
-
-    function initEventHandlers() {
-        $('#save-button').click(saveNotesForPage);
-    }
-
-    function init() {
-        getActiveWindowTabURL();
-    }
-
-    initEventHandlers();
     init();
+    initEventHandlers();
 });
