@@ -17,23 +17,22 @@ $(function () {
             $('#currentTabImage').attr('src', CURRENT_TAB_ICON);
         });
 
-        chrome.storage.sync.get(
-            ['CHROME_STORAGE_ALL_NOTES_KEY'],
-            function (result) {
-                ALL_NOTES_OBJECT = result.CHROME_STORAGE_ALL_NOTES_KEY;
-                if (CURRENT_TAB_URL in ALL_NOTES_OBJECT) {
-                    $('#currentTabURL').val(
-                        ALL_NOTES_OBJECT[CURRENT_TAB_URL].noteUrl
-                    );
-                    $('#currentTabTitle').val(
-                        ALL_NOTES_OBJECT[CURRENT_TAB_URL].noteTitle
-                    );
-                    $('#notes-content').val(
-                        ALL_NOTES_OBJECT[CURRENT_TAB_URL].noteText
-                    );
-                }
+        chrome.storage.sync.get([CHROME_STORAGE_ALL_NOTES_KEY], function (
+            result
+        ) {
+            ALL_NOTES_OBJECT = result[CHROME_STORAGE_ALL_NOTES_KEY] || {};
+            if (typeof ALL_NOTES_OBJECT[CURRENT_TAB_URL] !== 'undefined') {
+                $('#currentTabURL').val(
+                    ALL_NOTES_OBJECT[CURRENT_TAB_URL].noteUrl
+                );
+                $('#currentTabTitle').val(
+                    ALL_NOTES_OBJECT[CURRENT_TAB_URL].noteTitle
+                );
+                $('#notes-content').val(
+                    ALL_NOTES_OBJECT[CURRENT_TAB_URL].noteText
+                );
             }
-        );
+        });
     };
 
     const showSuccessAlert = function () {
@@ -68,13 +67,13 @@ $(function () {
             ALL_NOTES_OBJECT[CURRENT_TAB_URL] = noteMetaDataObject;
 
             chrome.storage.sync.set(
-                { CURRENT_TAB_URL: noteMetaDataObject },
+                { [CURRENT_TAB_URL]: noteMetaDataObject },
                 function () {
                     showSuccessAlert();
                 }
             );
             chrome.storage.sync.set(
-                { CHROME_STORAGE_ALL_NOTES_KEY: ALL_NOTES_OBJECT },
+                { [CHROME_STORAGE_ALL_NOTES_KEY]: ALL_NOTES_OBJECT },
                 function () {
                     showSuccessAlert();
                 }
