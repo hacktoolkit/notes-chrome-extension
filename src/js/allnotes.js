@@ -1,4 +1,6 @@
 $(function () {
+    const CHROME_STORAGE_ALL_NOTES_KEY = '__ALL_NOTE_DATA__';
+    
     const deleteNoteForRow = function () {};
 
     const initEventHandlers = function () {
@@ -7,9 +9,9 @@ $(function () {
 
     const fetchAllPreviousNotes = function () {
         chrome.storage.sync.get(
-            ['CHROME_STORAGE_ALL_NOTES_KEY'],
+            [CHROME_STORAGE_ALL_NOTES_KEY],
             function (result) {
-                ALL_NOTES_OBJECT = result.CHROME_STORAGE_ALL_NOTES_KEY;
+                ALL_NOTES_OBJECT = result[CHROME_STORAGE_ALL_NOTES_KEY];
                 console.log(ALL_NOTES_OBJECT);
                 let urlListItems = [];
                 for (const URL in ALL_NOTES_OBJECT) {
