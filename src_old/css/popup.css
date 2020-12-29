@@ -1,0 +1,31 @@
+* {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    width: 600px;
+}
+
+#main__add__section {
+    margin-top: 10px;
+    margin-bottom: 10px;
+    padding: 0 !important;
+}
+
+.fill {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+.fill img {
+    flex-shrink: 0;
+    min-width: 100%;
+    min-height: 100%;
+}
+
+.nopadding {
+    padding: 0 !important;
+    margin: 0 !important;
+}
