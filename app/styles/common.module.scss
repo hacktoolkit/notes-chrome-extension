@@ -1,0 +1,39 @@
+.popup {
+    width: 800px;
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+
+    #main__add__section {
+        margin-top: 10px;
+        margin-bottom: 10px;
+        padding: 0 !important;
+    }
+
+    .all__notes__table {
+        margin-left: 16px;
+        width: 100%;
+
+        tr {
+            width: 800px;
+        }
+    }
+
+    .fill {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden;
+
+        img {
+            flex-shrink: 0;
+            min-width: 100%;
+            min-height: 100%;
+        }
+    }
+
+    .nopadding {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+}

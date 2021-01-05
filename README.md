@@ -1,4 +1,4 @@
-# Google Chrome Notes Extension
+# Notes Chrome Extension
 
 **The purpoose of this application is to allow users to easily take and store notes on URLs directly on the browser.**
 
