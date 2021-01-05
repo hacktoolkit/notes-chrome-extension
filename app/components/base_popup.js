@@ -54,16 +54,16 @@ function BasePopup(WrappedComponent) {
 
         showSuccessAlert() {
             this.addAlert(
-                'Winner, winner, chicken dinner!',
-                'Saved successfully!',
+                'Saved Successfully',
+                'The notes for this page were saved properly in All Notes.',
                 'success'
             );
         }
 
         showErrorAlert() {
             this.addAlert(
-                'Oh snap! You got an error!',
-                'Unable to save',
+                'Error Saving',
+                'The notes for this page were NOT saved properly.',
                 'danger'
             );
         }

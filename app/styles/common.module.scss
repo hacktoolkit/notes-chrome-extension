@@ -1,10 +1,22 @@
 .popup {
-    width: 600px;
+    width: 800px;
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
 
     #main__add__section {
         margin-top: 10px;
         margin-bottom: 10px;
         padding: 0 !important;
+    }
+
+    .all__notes__table {
+        margin-left: 16px;
+        width: 100%;
+
+        tr {
+            width: 800px;
+        }
     }
 
     .fill {
