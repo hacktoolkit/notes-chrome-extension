@@ -9,9 +9,14 @@ install:
 ## clean - clean previous builds
 clean:
 	rm -rf app/out/*
-	rm -rf src
+	rm -rf dist
+	rm -rf *.zip
 
 ## build - build the app for release
 build: clean install
 	cd app && yarn build
-	mv app/out src
+	mv app/out dist
+
+## package - creates a new package
+package: build
+	7z a url_notes.zip `cat FILES`
