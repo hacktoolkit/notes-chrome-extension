@@ -40,10 +40,17 @@ class Popup extends React.Component {
                 body: noteBody,
             };
 
-            saveNote(noteUrl, noteDetails, (allNotesObject) => {
-                popup.setState({ allNotesObject });
-                popup.showSuccessAlert();
-            });
+            saveNote(
+                noteUrl,
+                noteDetails,
+                (allNotesObject) => {
+                    popup.setState({ allNotesObject });
+                    popup.showSuccessAlert();
+                },
+                () => {
+                    popup.showErrorAlert();
+                }
+            );
         }
     }
 

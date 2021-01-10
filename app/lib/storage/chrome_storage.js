@@ -1,6 +1,14 @@
 const CHROME_STORAGE_ALL_NOTES_KEY = '__ALL_NOTE_DATA__';
 
-function saveNoteToChromeStorage(url, details, callback) {
+function canAccessChromeStorage() {
+    const canAccess =
+        typeof chrome !== 'undefined' && typeof chrome.storage !== 'undefined';
+    return canAccess;
+}
+
+// Create / Update functions
+
+function saveNoteToChromeStorage(url, details, callback, onError) {
     getAllStoredNotesFromChromeStorage((allNotesObject) => {
         allNotesObject[url] = details;
 
@@ -12,6 +20,8 @@ function saveNoteToChromeStorage(url, details, callback) {
         );
     });
 }
+
+// Read functions
 
 function getAllStoredNotesFromChromeStorage(callback) {
     chrome.storage.sync.get([CHROME_STORAGE_ALL_NOTES_KEY], function (result) {
@@ -30,8 +40,37 @@ function getNotesForUrlFromChromeStorage(url, notesFallback, callback) {
     });
 }
 
+// Delete functions
+
+function deleteNotesForUrlFromChromeStorage(url, callback) {
+    getAllStoredNotesFromChromeStorage((allNotesObject) => {
+        delete allNotesObject[url];
+
+        chrome.storage.sync.set(
+            { [CHROME_STORAGE_ALL_NOTES_KEY]: allNotesObject },
+            function () {
+                callback(allNotesObject);
+            }
+        );
+    });
+}
+
+function deleteAllNotesFromChromeStorage(callback) {
+    chrome.storage.sync.set(
+        { [CHROME_STORAGE_ALL_NOTES_KEY]: {} },
+        function () {
+            if (callback) {
+                callback();
+            }
+        }
+    );
+}
+
 export {
-    saveNoteToChromeStorage,
+    canAccessChromeStorage,
+    deleteAllNotesFromChromeStorage,
+    deleteNotesForUrlFromChromeStorage,
     getAllStoredNotesFromChromeStorage,
     getNotesForUrlFromChromeStorage,
+    saveNoteToChromeStorage,
 };

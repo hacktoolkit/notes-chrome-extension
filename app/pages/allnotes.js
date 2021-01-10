@@ -1,35 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import BasePopup from '../components/base_popup';
 import Table from 'react-bootstrap/Table';
-import NoteTableItem from '../components/NoteTableIem';
+
+import BasePopup from '../components/base_popup';
+import NoteTableItem from '../components/NoteTableItem';
+
+import { deleteNotesForUrl, getAllStoredNotes } from '../lib/notes';
+
 import css from '../styles/common.module.scss';
 
 const AllNotes = () => {
     const [allNotesObject, setAllNotesObject] = useState(null);
 
     useEffect(() => {
-        chrome.storage.sync.get(['__ALL_NOTE_DATA__'], function (result) {
-            const allNoteDataObject = result['__ALL_NOTE_DATA__'];
-            setAllNotesObject(allNoteDataObject);
+        getAllStoredNotes(function (allNotesObj) {
+            setAllNotesObject(allNotesObj);
         });
     }, []);
 
-    const deleteRowFromTable = (noteURL) => {
-        delete allNotesObject[noteURL];
-        chrome.storage.sync.remove(noteURL);
-
-        chrome.storage.sync.set(
-            { ['__ALL_NOTE_DATA__']: allNotesObject },
-            function () {
-                chrome.storage.sync.get(
-                    ['__ALL_NOTE_DATA__'],
-                    function (result) {
-                        const allNoteDataObject = result['__ALL_NOTE_DATA__'];
-                        setAllNotesObject(allNoteDataObject);
-                    }
-                );
-            }
-        );
+    const deleteRowFromTable = (noteUrl) => {
+        deleteNotesForUrl(noteUrl, (allNotesObj) => {
+            setAllNotesObject(allNotesObj);
+        });
     };
 
     return (
@@ -46,8 +37,7 @@ const AllNotes = () => {
                         <th className="col-sm-2">Title</th>
                         <th className="col-sm-2">URL</th>
                         <th className="col-sm-6">Notes</th>
-                        <th className="col-sm-1">Delete</th>
-                        <th className="col-sm-1">Edit</th>
+                        <th className="col-sm-2">Actions</th>
                     </tr>
                 </thead>
                 {allNotesObject ? (

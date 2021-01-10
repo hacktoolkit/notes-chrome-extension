@@ -96,19 +96,18 @@ function BasePopup(WrappedComponent) {
 
                         <link rel="icon" href="/favicon.ico" />
                     </Head>
+                    <Navbar bg="dark" variant="dark">
+                        <Navbar.Brand>Note Taker</Navbar.Brand>
+                        <Nav>
+                            <Nav.Link href={`popup${extension}`}>
+                                Current Page
+                            </Nav.Link>
+                            <Nav.Link href={`allnotes${extension}`}>
+                                All Notes
+                            </Nav.Link>
+                        </Nav>
+                    </Navbar>
                     <main className={css.main}>
-                        <Navbar bg="dark" variant="dark">
-                            <Navbar.Brand>Note Taker</Navbar.Brand>
-                            <Nav>
-                                <Nav.Link href={`popup${extension}`}>
-                                    Current Page
-                                </Nav.Link>
-                                <Nav.Link href={`allnotes${extension}`}>
-                                    All Notes
-                                </Nav.Link>
-                            </Nav>
-                        </Navbar>
-
                         <WrappedComponent popup={this} />
                     </main>
                     <div className="alerts">{alertJSX}</div>
