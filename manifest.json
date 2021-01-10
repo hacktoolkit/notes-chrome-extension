@@ -15,12 +15,12 @@
       "48": "img/get_started48.png",
       "128": "img/get_started128.png"
     },
-    "default_popup": "src/popup.html",
+    "default_popup": "dist/popup.html",
     "default_title": "URL Notes"
   },
 
   "options_ui": {
-    "page": "src/options.html",
+    "page": "dist/options.html",
     "chrome_style": true
   },
 
