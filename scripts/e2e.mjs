@@ -153,7 +153,7 @@ try {
 
     // export and import round-trip
     const exp = await send({ type: 'export' });
-    check('export zips every note', exp.count === 2 && exp.base64.length > 100, `${exp.count} notes`);
+    check('export zips every note', exp.count === 2 && exp.files >= exp.count && exp.base64.length > 100, `${exp.count} notes, ${exp.files} files`);
     const md = await popup.eval(`(async () => { const m = await import('./lib/notes.js'); const s = await import('./lib/store.js'); const n = await s.getNote('${n2.id}'); return m.toMarkdown(n); })()`);
     check('markdown has frontmatter and a dated heading', /^---\ntitle: /.test(md) && /## \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(md));
     await send({ type: 'deleteNote', args: { id: n2.id } });

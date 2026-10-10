@@ -68,12 +68,12 @@ async function renderLists() {
 // ----- backup --------------------
 
 async function exportAll() {
-    const { count, base64 } = await send('export');
+    const { count, files, base64 } = await send('export');
     const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
     const blob = new Blob([bytes], { type: 'application/zip' });
     const a = el('a', { href: URL.createObjectURL(blob), download: `page-notes-${new Date().toISOString().slice(0, 10)}.zip` });
     document.body.append(a); a.click(); a.remove();
-    $('#backup-status').textContent = `Exported ${count} note${count === 1 ? '' : 's'}.`;
+    $('#backup-status').textContent = `Exported ${count} note${count === 1 ? '' : 's'} and ${files - count} capture${files - count === 1 ? '' : 's'}.`;
 }
 
 async function importFiles(fileList) {

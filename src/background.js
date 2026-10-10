@@ -234,11 +234,19 @@ async function handle({ type, args = {} } = {}) {
         case 'export': {
             const notes = await allNotes();
             const files = notes.map((n) => ({ name: fileNameFor(n), text: toMarkdown(n) }));
+            // captures ride along as plain text so the local cache is backed up too
+            for (const n of notes) {
+                for (const c of n.snapshots || []) {
+                    const stamp = c.at.replace(/[:.]/g, '-');
+                    const head = [`title: ${c.title || ''}`, `url: ${n.url}`, `captured: ${c.at}`, c.seen && c.seen !== c.at ? `seen: ${c.seen}` : null, c.meta?.siteName ? `site: ${c.meta.siteName}` : null, c.meta?.author ? `author: ${c.meta.author}` : null, c.meta?.published ? `published: ${c.meta.published}` : null].filter(Boolean).join('\n');
+                    files.push({ name: `captures/${fileNameFor(n).replace(/\.md$/, '')}/${stamp}.txt`, text: `${head}\n\n${c.text || ''}` });
+                }
+            }
             const zip = makeZip(files);
             // base64 so it crosses the message boundary
             let bin = '';
             for (let i = 0; i < zip.length; i += 0x8000) bin += String.fromCharCode.apply(null, zip.subarray(i, i + 0x8000));
-            return { count: files.length, base64: btoa(bin) };
+            return { count: notes.length, files: files.length, base64: btoa(bin) };
         }
         case 'import': {
             const { settings } = await ctx();
