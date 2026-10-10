@@ -71,7 +71,7 @@ test('mergeNotes unions entries without duplicates', () => {
     const m = mergeNotes(a, b);
     assert.deepEqual(m.entries.map((e) => e.text), ['one', 'two']);
     assert.deepEqual(m.tags, ['t']);
-    assert.equal(mergeNotes(null, b), b);
+    assert.deepEqual(mergeNotes(null, b), b);
 });
 
 test('matchesQuery and presets', () => {
@@ -102,4 +102,32 @@ test('addSnapshot keeps history, dedupes identical captures, caps length and kee
     assert.equal(n.snapshots[0].text, 'v1');
     assert.equal(addSnapshot(n, null), n);
     assert.equal(addSnapshot(n, { text: '' }), n);
+});
+
+test('mergeNotes matches entries to the minute and keeps the existing reminder', () => {
+    let a = newNote({ url: 'https://e.com/', title: 'E', key: 'https://e.com/', now: new Date('2026-01-01T00:00:00Z') });
+    a = addEntry(a, 'one', new Date('2026-01-02T03:04:17.123Z'));
+    // the same note after a Markdown round-trip: seconds are gone
+    const back = fromMarkdown(toMarkdown(a));
+    assert.equal(back.entries[0].at.slice(17), '00.000Z');
+    const m = mergeNotes(a, back, new Date('2026-06-01T00:00:00Z'));
+    assert.equal(m.entries.length, 1, 'round-tripped entry must not duplicate');
+    // reminders: existing wins; a new note only takes a future reminder
+    const withPast = { ...back, remind: '2026-01-05T09:00:00.000Z' };
+    assert.equal(mergeNotes({ ...a, remind: null }, withPast, new Date('2026-06-01T00:00:00Z')).remind, null);
+    assert.equal(mergeNotes(null, withPast, new Date('2026-06-01T00:00:00Z')).remind, null);
+    const withFuture = { ...back, remind: '2027-01-05T09:00:00.000Z' };
+    assert.equal(mergeNotes(null, withFuture, new Date('2026-06-01T00:00:00Z')).remind, '2027-01-05T09:00:00.000Z');
+    assert.equal(mergeNotes({ ...a, remind: '2026-12-25T00:00:00.000Z' }, withFuture).remind, '2026-12-25T00:00:00.000Z');
+});
+
+test('addSnapshot ignores an identical capture within the hour', async () => {
+    const { addSnapshot } = await import('../src/lib/notes.js');
+    let n = newNote({ url: 'https://e.com/', title: 'E', key: 'k' });
+    n = addSnapshot(n, { title: 'E', text: 'v1' }, new Date('2026-01-01T00:00:00Z'));
+    const same = addSnapshot(n, { title: 'E', text: 'v1' }, new Date('2026-01-01T00:30:00Z'));
+    assert.equal(same, n);
+    const later = addSnapshot(n, { title: 'E', text: 'v1' }, new Date('2026-01-01T02:00:00Z'));
+    assert.notEqual(later, n);
+    assert.equal(later.snapshots[0].seen, '2026-01-01T02:00:00.000Z');
 });

@@ -81,6 +81,9 @@ export function addSnapshot(note, capture, now = new Date()) {
     const history = [...(note.snapshots || [])];
     const last = history[history.length - 1];
     if (last && last.hash === hash) {
+        // same page as last time: note that it was seen again, but do not
+        // rewrite the note for a repeat within the hour
+        if (now - new Date(last.seen || last.at) < 3600000) return note;
         history[history.length - 1] = { ...last, seen: iso };
     } else {
         history.push({ at: iso, seen: iso, hash, title: capture.title || '', description: capture.description || '', text: capture.text, meta: capture.meta || null, structured: capture.structured || null });
@@ -198,13 +201,21 @@ export function fromMarkdown(text) {
     };
 }
 
-// Merge an imported note into an existing one: union of entries by timestamp+text.
-export function mergeNotes(existing, incoming) {
-    if (!existing) return incoming;
-    const seen = new Set(existing.entries.map((e) => `${e.at}|${e.text}`));
+// Markdown headings carry minutes, not seconds, so entries are matched to the
+// minute plus text when merging.
+const entryKey = (e) => `${new Date(e.at).toISOString().slice(0, 16)}|${e.text}`;
+
+// Merge an imported note into an existing one: union of entries by
+// minute-stamp and text. An existing note keeps its own reminder state; a
+// reminder from the file is only honoured for a new note and only if it is
+// still in the future.
+export function mergeNotes(existing, incoming, now = new Date()) {
+    const futureRemind = incoming.remind && new Date(incoming.remind) > now ? incoming.remind : null;
+    if (!existing) return { ...incoming, remind: futureRemind };
+    const seen = new Set(existing.entries.map(entryKey));
     const entries = [...existing.entries];
     for (const e of incoming.entries) {
-        if (!seen.has(`${e.at}|${e.text}`)) entries.push(e);
+        if (!seen.has(entryKey(e))) entries.push(e);
     }
     entries.sort((a, b) => a.at.localeCompare(b.at));
     return {
@@ -212,7 +223,7 @@ export function mergeNotes(existing, incoming) {
         title: incoming.updated > existing.updated ? incoming.title : existing.title,
         tags: [...new Set([...existing.tags, ...incoming.tags])],
         updated: [existing.updated, incoming.updated].sort().pop(),
-        remind: incoming.remind || existing.remind,
+        remind: existing.remind,
         snapshot: existing.snapshot || incoming.snapshot,
         snapshots: existing.snapshots?.length ? existing.snapshots : incoming.snapshots || [],
         entries

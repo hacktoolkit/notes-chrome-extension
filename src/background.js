@@ -14,7 +14,7 @@ function stripForPopup(note) {
 }
 import { allNotes, deleteNote, getIndex, getNote, putNote, rebuildIndex, writeToVault } from './lib/store.js';
 import { makeZip } from './lib/zip.js';
-import { analyzeProfile, diffLines, diffProfiles, extractorFor } from './lib/profile.js';
+import { analyzeProfile, captureBudget, diffLines, diffProfiles, extractorFor } from './lib/profile.js';
 
 // ----- context --------------------
 
@@ -86,6 +86,14 @@ function structure(ident, capture) {
     try { return extractor(capture.text); } catch (e) { return null; }
 }
 
+// One place for "capture this tab for this page identity": the budget comes
+// from the parser registry, and the structured parse rides along. Tests pass
+// a ready capture in args.snapshot.
+async function captureFor(tab, ident, args) {
+    const cap = args.snapshot || (tab ? await capturePage(tab.id, { maxChars: captureBudget(ident.rule) }) : null);
+    return cap ? { ...cap, structured: structure(ident, cap) } : null;
+}
+
 // Insights for a note: analysis of the newest structured capture, edits since
 // the previous capture, and a plain-text diff for any page.
 function insightsFor(note) {
@@ -136,9 +144,9 @@ async function handle({ type, args = {} } = {}) {
             // Opening the popup is a user action on this tab: capture what the
             // page looks like now, so history accrues even without an entry.
             if (settings.snapshotOnSave && note && args.capture !== false) {
-                const cap = args.snapshot || await capturePage(tab.id, { maxChars: ident.rule === 'LinkedIn profile' ? 40000 : 6000 });
+                const cap = await captureFor(tab, ident, args);
                 if (cap) {
-                    const next = addSnapshot(note, { ...cap, structured: structure(ident, cap) });
+                    const next = addSnapshot(note, cap);
                     if (next !== note) note = await putNote(next);
                 }
             }
@@ -149,10 +157,10 @@ async function handle({ type, args = {} } = {}) {
             const tab = await tabFor(args);
             if (!tab?.url) throw new Error('No page to capture');
             const { ident, note, settings } = await noteForUrl(tab.url);
-            const cap = args.snapshot || await capturePage(tab.id, { maxChars: ident.rule === 'LinkedIn profile' ? 40000 : 6000 });
+            const cap = await captureFor(tab, ident, args);
             if (!cap) throw new Error('Could not read this page. Chrome pages and some sites cannot be captured.');
             let next = note || newNote({ url: tab.url, title: tab.title || tab.url, key: ident.key, rule: ident.rule });
-            next = addSnapshot(next, { ...cap, structured: structure(ident, cap) });
+            next = addSnapshot(next, cap);
             const saved = await persist(next, settings);
             return { note: saved ? stripForPopup(saved) : null, insights: saved ? insightsFor(saved) : null };
         }
@@ -173,8 +181,8 @@ async function handle({ type, args = {} } = {}) {
             let next = note || newNote({ url, title: args.title || tab?.title || url, key: ident.key, rule: ident.rule });
             next = addEntry(next, args.text);
             if (settings.snapshotOnSave && tab) {
-                const cap = args.snapshot || await capturePage(tab.id, { maxChars: ident.rule === 'LinkedIn profile' ? 40000 : 6000 });
-                if (cap) next = addSnapshot(next, { ...cap, structured: structure(ident, cap) });
+                const cap = await captureFor(tab, ident, args);
+                if (cap) next = addSnapshot(next, cap);
             }
             const saved = await persist(next, settings);
             return saved ? stripForPopup(saved) : saved;
@@ -202,7 +210,7 @@ async function handle({ type, args = {} } = {}) {
             if (!when) throw new Error('No time given');
             const { ident, note, settings } = await noteForUrl(tab.url);
             let next = note || newNote({ url: tab.url, title: tab.title, key: ident.key, rule: ident.rule });
-            if (args.text) next = addEntry(next, args.text);
+            next = addEntry(next, args.text || `Snoozed until ${new Date(when).toLocaleString()}.`);
             next = setReminder(next, when);
             await persist(next, settings);
             await chrome.tabs.remove(tab.id);
@@ -257,7 +265,7 @@ async function handle({ type, args = {} } = {}) {
                 try {
                     const incoming = fromMarkdown(file.text);
                     const existing = await getNote(incoming.id);
-                    await persist(mergeNotes(existing, incoming), settings);
+                    await persist(mergeNotes(existing, incoming, new Date()), settings);
                     existing ? merged++ : imported++;
                 } catch (e) {
                     errors.push(`${file.name}: ${e.message}`);
@@ -288,16 +296,32 @@ async function handle({ type, args = {} } = {}) {
 // ----- presence badge --------------------
 
 const badgeTimers = new Map();
+let allBadgeTimer = null;
+
+// Badges come from the index (canonical key -> entry count), so a pass over
+// every tab costs one settings load, one rule compile and one index read.
+async function badgeContext() {
+    const c = await ctx();
+    const index = await getIndex();
+    const byKey = new Map(Object.values(index).map((r) => [r.key, r]));
+    return { ...c, byKey };
+}
+
+async function applyBadge(tab, bc) {
+    try {
+        if (!bc.settings.showBadge || !tab.url) return chrome.action.setBadgeText({ tabId: tab.id, text: '' });
+        const ident = identify(tab.url, bc.compiled, bc.settings.normalization);
+        const row = bc.byKey.get(ident.key);
+        await chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#5b6cff' });
+        await chrome.action.setBadgeText({ tabId: tab.id, text: row ? String(row.entries || '●') : '' });
+        await chrome.action.setTitle({ tabId: tab.id, title: row ? `${APP_NAME}: ${row.entries} entries here` : APP_NAME });
+    } catch (e) { /* tab gone */ }
+}
 
 async function updateBadge(tabId) {
     try {
         const tab = await chrome.tabs.get(tabId);
-        const { settings } = await loadSettings();
-        if (!settings.showBadge || !tab.url) return chrome.action.setBadgeText({ tabId, text: '' });
-        const { note } = await noteForUrl(tab.url);
-        await chrome.action.setBadgeBackgroundColor({ tabId, color: '#5b6cff' });
-        await chrome.action.setBadgeText({ tabId, text: note ? String(note.entries.length || '●') : '' });
-        await chrome.action.setTitle({ tabId, title: note ? `${APP_NAME}: ${note.entries.length} entries here` : APP_NAME });
+        await applyBadge(tab, await badgeContext());
     } catch (e) { /* tab gone */ }
 }
 
@@ -306,9 +330,15 @@ function scheduleBadge(tabId) {
     badgeTimers.set(tabId, setTimeout(() => { badgeTimers.delete(tabId); updateBadge(tabId); }, 300));
 }
 
-async function scheduleBadgeForAll() {
-    const tabs = await chrome.tabs.query({});
-    for (const t of tabs) scheduleBadge(t.id);
+function scheduleBadgeForAll() {
+    clearTimeout(allBadgeTimer);
+    allBadgeTimer = setTimeout(async () => {
+        allBadgeTimer = null;
+        try {
+            const bc = await badgeContext();
+            for (const t of await chrome.tabs.query({})) await applyBadge(t, bc);
+        } catch (e) { /* ignore */ }
+    }, 300);
 }
 
 chrome.tabs.onActivated.addListener(({ tabId }) => scheduleBadge(tabId));

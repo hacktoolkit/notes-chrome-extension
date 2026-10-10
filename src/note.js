@@ -3,31 +3,7 @@ import { toMarkdown } from './lib/notes.js';
 import { fmtDate } from './lib/profile.js';
 
 const $ = (sel) => document.querySelector(sel);
-function send(type, args = {}) {
-    return new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ type, args }, (r) => {
-            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-            else if (!r || !r.ok) reject(new Error(r?.error || 'No response'));
-            else resolve(r.result);
-        });
-    });
-}
-function el(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-        if (k === 'class') node.className = v;
-        else if (k === 'text') node.textContent = v;
-        else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
-        else if (v !== undefined && v !== null && v !== false) node.setAttribute(k, v === true ? '' : v);
-    }
-    for (const c of [].concat(children)) if (c !== null && c !== undefined) node.append(c.nodeType ? c : document.createTextNode(c));
-    return node;
-}
-function fmt(iso) {
-    const d = new Date(iso);
-    const p = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
+import { el, fmt, send } from './lib/ui.js';
 
 function renderFindings(target, items, cls, tag) {
     for (const f of items) target.append(el('div', { class: `finding ${cls}` }, [el('span', { class: 'tag', text: tag }), el('span', { text: f.text })]));

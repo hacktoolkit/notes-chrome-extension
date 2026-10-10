@@ -1,4 +1,4 @@
-.PHONY: help test check e2e dev dev-clean clean package
+.PHONY: help test check e2e dev dev-clean screenshots clean package
 VERSION := $(shell node -p "require('./manifest.json').version")
 NAME := $(shell node -p "require('./manifest.json').name.toLowerCase().replace(/[^a-z0-9]+/g,'_')")
 
@@ -33,3 +33,7 @@ clean:
 ## package - build <name>-<version>.zip for the Chrome Web Store
 package: clean test
 	zip -r -X $(NAME)-$(VERSION).zip `cat FILES` -x '*.DS_Store'
+
+## screenshots - render README images and Chrome Web Store screenshots from the holodeck
+screenshots:
+	node scripts/screenshots.mjs

@@ -2,30 +2,11 @@
 // service worker.
 
 const $ = (sel) => document.querySelector(sel);
+import { el, fmt, send } from './lib/ui.js';
 const APP_NAME = chrome.runtime.getManifest().name;
 let current = null; // { tab, ident, note, insights }
 
-function send(type, args = {}) {
-    return new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ type, args }, (r) => {
-            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-            else if (!r || !r.ok) reject(new Error(r?.error || 'No response'));
-            else resolve(r.result);
-        });
-    });
-}
 
-function el(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-        if (k === 'class') node.className = v;
-        else if (k === 'text') node.textContent = v;
-        else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
-        else if (v !== undefined && v !== null && v !== false) node.setAttribute(k, v === true ? '' : v);
-    }
-    for (const c of [].concat(children)) if (c !== null && c !== undefined) node.append(c.nodeType ? c : document.createTextNode(c));
-    return node;
-}
 
 let toastTimer;
 function toast(msg, error = false) {
@@ -37,11 +18,6 @@ function toast(msg, error = false) {
     toastTimer = setTimeout(() => { t.hidden = true; }, 2500);
 }
 
-function fmt(iso) {
-    const d = new Date(iso);
-    const p = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
 
 function renderText(text) {
     // quotes ("> ") get a bar; everything else is plain text

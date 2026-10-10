@@ -344,8 +344,16 @@ export function diffLines(oldText, newText) {
     };
 }
 
-// Which extractor applies to a page, by rule name.
+// Which extractor applies to a page, by rule name, and how much text its
+// section needs. Add a parser here and in test/fixtures first.
+const EXTRACTORS = {
+    'LinkedIn profile': { parse: parseLinkedInProfile, maxChars: 40000 }
+};
+
 export function extractorFor(ruleName) {
-    if (ruleName === 'LinkedIn profile') return parseLinkedInProfile;
-    return null;
+    return EXTRACTORS[ruleName]?.parse || null;
+}
+
+export function captureBudget(ruleName) {
+    return EXTRACTORS[ruleName]?.maxChars || 6000;
 }

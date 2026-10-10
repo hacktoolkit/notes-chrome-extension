@@ -7,6 +7,15 @@ import { indexEntry } from './notes.js';
 const INDEX_KEY = 'notes:index';
 const noteKey = (id) => `note:${id}`;
 
+// The index is one item that several handlers (popup, alarms, context menu)
+// read-modify-write; serialise those writes so none are lost.
+let chain = Promise.resolve();
+function serialized(fn) {
+    const run = chain.then(fn, fn);
+    chain = run.catch(() => {});
+    return run;
+}
+
 export async function getNote(id) {
     const data = await chrome.storage.local.get(noteKey(id));
     return data[noteKey(id)] || null;
@@ -17,7 +26,15 @@ export async function getIndex() {
     return data[INDEX_KEY] || {};
 }
 
-export async function putNote(note) {
+export function putNote(note) {
+    return serialized(() => putNoteNow(note));
+}
+
+export function deleteNote(id) {
+    return serialized(() => deleteNoteNow(id));
+}
+
+async function putNoteNow(note) {
     const index = await getIndex();
     if (note.entries.length === 0 && !note.remind && !(note.snapshots && note.snapshots.length)) {
         // a note with no entries, reminder or captures is a deleted note
@@ -31,7 +48,7 @@ export async function putNote(note) {
     return note;
 }
 
-export async function deleteNote(id) {
+async function deleteNoteNow(id) {
     const index = await getIndex();
     delete index[id];
     await chrome.storage.local.remove(noteKey(id));

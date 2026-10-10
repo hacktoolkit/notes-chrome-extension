@@ -144,3 +144,10 @@ test('varied formatting: self-employed, no employment type, lowercase present, e
     assert.equal(summary.employers, 4);
     assert.ok(summary.years >= 10, String(summary.years));
 });
+
+test('captureBudget is larger for pages with a parser', async () => {
+    const { captureBudget } = await import('../src/lib/profile.js');
+    assert.equal(captureBudget('LinkedIn profile'), 40000);
+    assert.equal(captureBudget('GitHub pull request'), 6000);
+    assert.equal(captureBudget(null), 6000);
+});

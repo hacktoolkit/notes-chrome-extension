@@ -4,6 +4,12 @@ Notes in the margins of the web. A note on any page follows that page across URL
 
 Vanilla JavaScript, Manifest V3, no build step, no dependencies, no server. Nothing leaves your browser. Works in Chrome, Brave, Edge and other Chromium browsers (Chrome 121 or newer).
 
+<p>
+  <img src="promo/popup.png" width="300" alt="Popup" />
+  <img src="promo/popup-remind.png" width="300" alt="Reminders and snooze" />
+</p>
+<p><img src="promo/note-detail.png" width="620" alt="Note detail with insights, changes and captures" /></p>
+
 ## What it does
 
 - **One note per page, many dated entries.** Click the toolbar icon on any page and type. Each save is a timestamped entry. The toolbar icon shows how many entries the current page has.
@@ -74,6 +80,9 @@ src/lib/settings.js    settings in storage.sync with local fallback
 src/popup.*            the note for the current page
 src/options.*          all notes, reminders, backup and vault, settings, help
 src/note.*             one note in full: insights, changes, entries, captures
+src/lib/ui.js          shared DOM and messaging helpers for the three pages
+scripts/screenshots.mjs README images and 1280x800 store screenshots (make screenshots)
+STORE_LISTING.md       Chrome Web Store copy, permission justifications, privacy answers
 scripts/e2e.mjs        headless browser suite
 scripts/dev.mjs        holodeck launcher
 ```

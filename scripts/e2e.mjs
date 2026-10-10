@@ -150,6 +150,14 @@ try {
     const after = (await tabs()).length;
     const plainNote = (await send({ type: 'list', args: { query: 'come back' } }))[0];
     check('snooze closes the tab and creates a reminder', after === before - 1 && snoozed.when && plainNote && plainNote.remind === new Date(snoozed.when).toISOString(), `${before}->${after}`);
+    // snoozing without text still leaves an entry, so the note survives the reminder firing
+    await popup.eval(`chrome.windows.create({ url: ['https://snooze.test/quiet'], focused: false })`);
+    await sleep(600);
+    const quietTab = (await tabs()).find((t) => /snooze\.test\/quiet/.test(t.url));
+    await send({ type: 'snoozeTab', args: { tabId: quietTab.id, preset: '1h' } });
+    const quiet = (await send({ type: 'list', args: { query: 'snoozed until' } }))[0];
+    check('snooze without text records an entry', quiet && quiet.entries === 1, JSON.stringify(quiet));
+    await send({ type: 'deleteNote', args: { id: quiet.id } });
 
     // export and import round-trip
     const exp = await send({ type: 'export' });
@@ -162,6 +170,14 @@ try {
     check('import restores from markdown and reports bad files', imp.imported === 1 && imp.errors.length === 1, JSON.stringify(imp));
     const restored = await send({ type: 'get', args: { id: n2.id } });
     check('restored note has its entry', restored && restored.entries.length === 1 && restored.entries[0].text === 'Reviewed. Waiting on CI.');
+    // importing the same file again over the existing note must not duplicate entries
+    const again = await send({ type: 'import', args: { files: [{ name: 'x.md', text: md }] } });
+    const afterAgain = await send({ type: 'get', args: { id: n2.id } });
+    check('re-import merges without duplicating entries', again.merged === 1 && afterAgain.entries.length === 1, `${afterAgain.entries.length} entries`);
+    // a past reminder in an imported file does not arm an alarm
+    const pastMd = md.replace(/^updated: .*$/m, (l) => `${l}\nremind: 2020-01-01T09:00:00.000Z`);
+    await send({ type: 'import', args: { files: [{ name: 'x.md', text: pastMd }] } });
+    check('past reminder from import is not armed', !(await popup.eval(`chrome.alarms.get('remind:${n2.id}')`)));
 
     // profile intelligence: captures are supplied directly (activeTab needs a
     // real click), parsed, analysed, and diffed across visits
@@ -181,9 +197,9 @@ try {
     check('popup open adds a capture', cur2.note.snapshots.length === 2 && cur2.insights.captures === 2, `${cur2.note.snapshots.length} captures`);
     check('edits between visits are detected', cur2.insights.edits?.some((e) => e.code === 'dates' && /were Jan 2021–Feb 2025, now Jan 2021–Feb 2023/.test(e.text)), JSON.stringify(cur2.insights.edits));
     check('plain text diff is reported too', cur2.insights.changed && cur2.insights.changed.addedCount === 1 && cur2.insights.changed.removedCount === 1, JSON.stringify(cur2.insights.changed));
-    // an identical capture does not grow history
+    // an identical capture within the hour changes nothing
     const cur3 = await send({ type: 'current', args: { tabId: liTab.id, snapshot: { title: 'Jane Doe | LinkedIn', text: editedFixture } } });
-    check('identical capture only bumps seen', cur3.note.snapshots.length === 2 && cur3.note.snapshots[1].seen > cur3.note.snapshots[1].at);
+    check('identical capture does not grow history', cur3.note.snapshots.length === 2 && cur3.note.snapshots[1].seen === cur3.note.snapshots[1].at);
     const detail = await send({ type: 'detail', args: { id: liNote.id } });
     check('detail returns full snapshots with text', detail.note.snapshots[0].text.length > 500 && detail.insights.profile.experience.length === 5);
     // the popup shows the insights
