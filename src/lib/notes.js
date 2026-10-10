@@ -38,7 +38,8 @@ export function newNote({ url, title, key, rule, now = new Date() }) {
         updated: iso,
         remind: null,
         entries: [],
-        snapshot: null
+        snapshot: null,
+        snapshots: []
     };
 }
 
@@ -62,8 +63,35 @@ export function setReminder(note, when, now = new Date()) {
     return { ...note, updated: now.toISOString(), remind: when ? new Date(when).toISOString() : null };
 }
 
+export const SNAPSHOT_LIMIT = 12;
+
+function textHash(s) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
+    return h.toString(16);
+}
+
+// Snapshots are what the page looked like when you were there. The newest is
+// also mirrored in `snapshot` for older readers. Identical captures (same text)
+// only bump the newest snapshot's `seen` time, so history stays meaningful.
+export function addSnapshot(note, capture, now = new Date()) {
+    if (!capture || !capture.text) return note;
+    const iso = now.toISOString();
+    const hash = textHash(`${capture.title || ''}\n${capture.text}`);
+    const history = [...(note.snapshots || [])];
+    const last = history[history.length - 1];
+    if (last && last.hash === hash) {
+        history[history.length - 1] = { ...last, seen: iso };
+    } else {
+        history.push({ at: iso, seen: iso, hash, title: capture.title || '', description: capture.description || '', text: capture.text, meta: capture.meta || null, structured: capture.structured || null });
+        while (history.length > SNAPSHOT_LIMIT) history.splice(1, 1); // keep the first ever and the recent ones
+    }
+    const newest = history[history.length - 1];
+    return { ...note, snapshots: history, snapshot: { at: newest.at, text: newest.text, title: newest.title, description: newest.description } };
+}
+
 export function setSnapshot(note, snapshot, now = new Date()) {
-    return { ...note, updated: now.toISOString(), snapshot: snapshot ? { at: now.toISOString(), ...snapshot } : null };
+    return addSnapshot(note, snapshot, now);
 }
 
 // ----- Markdown ------------------------------------------------------------
@@ -165,7 +193,8 @@ export function fromMarkdown(text) {
         updated: meta.updated || entries[entries.length - 1]?.at || new Date().toISOString(),
         remind: meta.remind || null,
         entries,
-        snapshot: meta.excerpt ? { at: meta.updated || null, text: meta.excerpt } : null
+        snapshot: meta.excerpt ? { at: meta.updated || null, text: meta.excerpt } : null,
+        snapshots: []
     };
 }
 
@@ -185,6 +214,7 @@ export function mergeNotes(existing, incoming) {
         updated: [existing.updated, incoming.updated].sort().pop(),
         remind: incoming.remind || existing.remind,
         snapshot: existing.snapshot || incoming.snapshot,
+        snapshots: existing.snapshots?.length ? existing.snapshots : incoming.snapshots || [],
         entries
     };
 }

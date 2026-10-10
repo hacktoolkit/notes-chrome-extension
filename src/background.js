@@ -4,11 +4,17 @@
 import { loadSettings } from './lib/settings.js';
 import { compileRules } from './lib/url.js';
 import {
-    addEntry, fileNameFor, fromMarkdown, identify, mergeNotes, matchesQuery, newNote,
-    presetTime, removeEntry, setReminder, setSnapshot, toMarkdown, updateEntry
+    addEntry, addSnapshot, fileNameFor, fromMarkdown, identify, mergeNotes, matchesQuery, newNote,
+    presetTime, removeEntry, setReminder, toMarkdown, updateEntry
 } from './lib/notes.js';
+
+// The popup does not need snapshot bodies; keep its messages small.
+function stripForPopup(note) {
+    return { ...note, snapshots: (note.snapshots || []).map(({ text, ...rest }) => ({ ...rest, chars: text?.length || 0 })), snapshot: note.snapshot ? { at: note.snapshot.at, title: note.snapshot.title } : null };
+}
 import { allNotes, deleteNote, getIndex, getNote, putNote, rebuildIndex, writeToVault } from './lib/store.js';
 import { makeZip } from './lib/zip.js';
+import { analyzeProfile, diffLines, diffProfiles, extractorFor } from './lib/profile.js';
 
 // ----- context --------------------
 
@@ -33,22 +39,73 @@ async function tabFor(args) {
     return t || null;
 }
 
-// Page snapshot via activeTab: title, description, selection, leading text.
-async function captureSnapshot(tabId) {
+// Page capture via the activeTab grant from the user's click: title, core
+// metadata (canonical, OpenGraph, author, published, JSON-LD types) and the
+// page text, line structure preserved so site parsers can read it.
+async function capturePage(tabId, { maxChars = 6000 } = {}) {
     try {
         const [r] = await chrome.scripting.executeScript({
             target: { tabId },
-            func: () => ({
-                title: document.title,
-                description: document.querySelector('meta[name="description"]')?.content || '',
-                selection: String(window.getSelection() || '').slice(0, 2000),
-                text: (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 4000)
-            })
+            args: [maxChars],
+            func: (limit) => {
+                const q = (sel) => document.querySelector(sel)?.getAttribute('content') || '';
+                const meta = {
+                    canonical: document.querySelector('link[rel="canonical"]')?.href || '',
+                    siteName: q('meta[property="og:site_name"]'),
+                    ogType: q('meta[property="og:type"]'),
+                    ogTitle: q('meta[property="og:title"]'),
+                    author: q('meta[name="author"]') || q('meta[property="article:author"]'),
+                    published: q('meta[property="article:published_time"]') || q('meta[name="date"]'),
+                    modified: q('meta[property="article:modified_time"]'),
+                    lang: document.documentElement.lang || '',
+                    jsonLdTypes: [...document.querySelectorAll('script[type="application/ld+json"]')].flatMap((s) => {
+                        try { const j = JSON.parse(s.textContent); return [].concat(j).map((x) => x && x['@type']).filter(Boolean); } catch (e) { return []; }
+                    }).slice(0, 8)
+                };
+                const text = (document.body?.innerText || '').replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
+                return {
+                    title: document.title,
+                    description: q('meta[name="description"]') || q('meta[property="og:description"]'),
+                    selection: String(window.getSelection() || '').slice(0, 2000),
+                    text: text.slice(0, limit),
+                    truncated: text.length > limit,
+                    meta
+                };
+            }
         });
         return r?.result || null;
     } catch (e) {
         return null; // no activeTab grant (no user gesture), chrome:// page, etc.
     }
+}
+
+// Runs the site extractor for the page's rule, if any, on a capture.
+function structure(ident, capture) {
+    const extractor = extractorFor(ident?.rule);
+    if (!extractor || !capture?.text) return null;
+    try { return extractor(capture.text); } catch (e) { return null; }
+}
+
+// Insights for a note: analysis of the newest structured capture, edits since
+// the previous capture, and a plain-text diff for any page.
+function insightsFor(note) {
+    const snaps = note?.snapshots || [];
+    if (snaps.length === 0) return null;
+    const newest = snaps[snaps.length - 1];
+    const previous = snaps.length > 1 ? snaps[snaps.length - 2] : null;
+    const out = { capturedAt: newest.at, seenAt: newest.seen, captures: snaps.length, meta: newest.meta || null, kind: newest.structured?.kind || null };
+    if (newest.structured) {
+        const { findings, summary } = analyzeProfile(newest.structured);
+        out.findings = findings;
+        out.summary = summary;
+        out.profile = { name: newest.structured.name, headline: newest.structured.headline, location: newest.structured.location, experience: newest.structured.experience, education: newest.structured.education };
+        if (previous?.structured) out.edits = diffProfiles(previous.structured, newest.structured);
+    }
+    if (previous) {
+        const d = diffLines(previous.text, newest.text);
+        out.changed = { since: previous.at, titleChanged: previous.title !== newest.title, added: d.added.slice(0, 12), removed: d.removed.slice(0, 12), addedCount: d.added.length, removedCount: d.removed.length };
+    }
+    return out;
 }
 
 async function persist(note, settings) {
@@ -75,8 +132,26 @@ async function handle({ type, args = {} } = {}) {
         case 'current': {
             const tab = await tabFor(args);
             if (!tab || !tab.url) return { tab: null, note: null };
-            const { ident, note } = await noteForUrl(tab.url);
-            return { tab: { id: tab.id, url: tab.url, title: tab.title }, ident, note };
+            let { ident, note, settings } = await noteForUrl(tab.url);
+            // Opening the popup is a user action on this tab: capture what the
+            // page looks like now, so history accrues even without an entry.
+            if (settings.snapshotOnSave && note && args.capture !== false) {
+                const cap = args.snapshot || await capturePage(tab.id, { maxChars: ident.rule === 'LinkedIn profile' ? 40000 : 6000 });
+                if (cap) {
+                    const next = addSnapshot(note, { ...cap, structured: structure(ident, cap) });
+                    if (next !== note) note = await putNote(next);
+                }
+            }
+            return { tab: { id: tab.id, url: tab.url, title: tab.title }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null };
+        }
+        case 'insights': {
+            const note = await getNote(args.id);
+            return note ? insightsFor(note) : null;
+        }
+        case 'detail': {
+            const note = await getNote(args.id);
+            if (!note) throw new Error('Note not found');
+            return { note, insights: insightsFor(note) };
         }
         case 'addEntry': {
             const tab = await tabFor(args);
@@ -85,11 +160,12 @@ async function handle({ type, args = {} } = {}) {
             const { ident, note, settings } = await noteForUrl(url);
             let next = note || newNote({ url, title: args.title || tab?.title || url, key: ident.key, rule: ident.rule });
             next = addEntry(next, args.text);
-            if (settings.snapshotOnSave && tab && !next.snapshot) {
-                const snap = await captureSnapshot(tab.id);
-                if (snap) next = setSnapshot(next, snap);
+            if (settings.snapshotOnSave && tab) {
+                const cap = args.snapshot || await capturePage(tab.id, { maxChars: ident.rule === 'LinkedIn profile' ? 40000 : 6000 });
+                if (cap) next = addSnapshot(next, { ...cap, structured: structure(ident, cap) });
             }
-            return persist(next, settings);
+            const saved = await persist(next, settings);
+            return saved ? stripForPopup(saved) : saved;
         }
         case 'updateEntry': {
             const note = await getNote(args.id);

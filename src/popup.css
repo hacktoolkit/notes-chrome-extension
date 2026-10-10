@@ -30,3 +30,14 @@ main { padding: 10px 12px 6px; max-height: 500px; overflow-y: auto; }
 .foot { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--panel); font-size: 12px; }
 .toast { position: absolute; left: 10px; right: 10px; bottom: 44px; padding: 9px 12px; border-radius: 9px; background: var(--text); color: var(--bg); box-shadow: var(--shadow); z-index: 30; font-weight: 500; }
 .toast[hidden] { display: none; } .toast.error { background: var(--danger); color: #fff; }
+
+.insights { margin: 10px 0 4px; display: flex; flex-direction: column; gap: 6px; }
+.insights .ins { padding: 7px 10px; border-radius: 8px; font-size: 12px; line-height: 1.4; background: var(--panel); border: 1px solid var(--line); }
+.insights .ins.ask { background: var(--danger-soft); border-color: transparent; }
+.insights .ins.edit { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.insights .ins.summary { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); }
+.insights .ins.summary b { color: var(--text); }
+.insights .ins .tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 6px; }
+.insights .ins.ask .tag { color: var(--danger); }
+.insights .more { font-size: 11px; color: var(--muted); padding: 0 2px; }
+.insights .more a { cursor: pointer; }

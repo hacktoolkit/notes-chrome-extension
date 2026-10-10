@@ -84,3 +84,22 @@ test('matchesQuery and presets', () => {
     assert.equal(new Date(presetTime('nextweek', now)).getDay(), 1);
     assert.equal(presetTime('nope', now), null);
 });
+
+test('addSnapshot keeps history, dedupes identical captures, caps length and keeps the first', async () => {
+    const { addSnapshot, SNAPSHOT_LIMIT } = await import('../src/lib/notes.js');
+    let n = newNote({ url: 'https://e.com/', title: 'E', key: 'k' });
+    n = addSnapshot(n, { title: 'E', text: 'v1', meta: { siteName: 'E' } }, new Date('2026-01-01T00:00:00Z'));
+    n = addSnapshot(n, { title: 'E', text: 'v1' }, new Date('2026-01-02T00:00:00Z'));
+    assert.equal(n.snapshots.length, 1);
+    assert.equal(n.snapshots[0].seen, '2026-01-02T00:00:00.000Z');
+    assert.equal(n.snapshots[0].at, '2026-01-01T00:00:00.000Z');
+    n = addSnapshot(n, { title: 'E', text: 'v2', structured: { kind: 'x' } }, new Date('2026-01-03T00:00:00Z'));
+    assert.equal(n.snapshots.length, 2);
+    assert.equal(n.snapshot.text, 'v2');
+    assert.equal(n.snapshots[1].structured.kind, 'x');
+    for (let i = 0; i < SNAPSHOT_LIMIT + 5; i++) n = addSnapshot(n, { title: 'E', text: `v${i + 10}` }, new Date(2026, 1, i + 1));
+    assert.equal(n.snapshots.length, SNAPSHOT_LIMIT);
+    assert.equal(n.snapshots[0].text, 'v1');
+    assert.equal(addSnapshot(n, null), n);
+    assert.equal(addSnapshot(n, { text: '' }), n);
+});

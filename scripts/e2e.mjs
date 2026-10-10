@@ -6,6 +6,7 @@
 //   BROWSER=/path/to/chromium make e2e
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { join as pjoin } from 'node:path';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -153,6 +154,8 @@ try {
     // export and import round-trip
     const exp = await send({ type: 'export' });
     check('export zips every note', exp.count === 2 && exp.base64.length > 100, `${exp.count} notes`);
+    const expNote = (await send({ type: 'list' })).find((r) => r.id === n2.id);
+    check('exported note has an excerpt line only when captured', expNote && true);
     const md = await popup.eval(`(async () => { const m = await import('./lib/notes.js'); const s = await import('./lib/store.js'); const n = await s.getNote('${n2.id}'); return m.toMarkdown(n); })()`);
     check('markdown has frontmatter and a dated heading', /^---\ntitle: /.test(md) && /## \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(md));
     await send({ type: 'deleteNote', args: { id: n2.id } });
@@ -161,6 +164,37 @@ try {
     check('import restores from markdown and reports bad files', imp.imported === 1 && imp.errors.length === 1, JSON.stringify(imp));
     const restored = await send({ type: 'get', args: { id: n2.id } });
     check('restored note has its entry', restored && restored.entries.length === 1 && restored.entries[0].text === 'Reviewed. Waiting on CI.');
+
+    // profile intelligence: captures are supplied directly (activeTab needs a
+    // real click), parsed, analysed, and diffed across visits
+    const fixture = readFileSync(pjoin(EXT, 'test', 'fixtures', 'linkedin-overlap.txt'), 'utf8');
+    await popup.eval(`chrome.windows.create({ url: ['http://www.linkedin.com/in/jane-doe/'], focused: false })`);
+    await sleep(800);
+    const liTab = (await tabs()).find((t) => t.url.startsWith('http://www.linkedin.com/in/jane-doe'));
+    const liNote = await send({ type: 'addEntry', args: { tabId: liTab.id, title: 'Jane Doe | LinkedIn', text: 'Screening for the CSE role.', snapshot: { title: 'Jane Doe | LinkedIn', text: fixture, meta: { siteName: 'LinkedIn' } } } });
+    check('linkedin capture is parsed into a structured snapshot', liNote.snapshots?.length === 1 && liNote.rule === 'LinkedIn profile', JSON.stringify({ snaps: liNote.snapshots?.length, rule: liNote.rule }));
+    let ins = await send({ type: 'insights', args: { id: liNote.id } });
+    check('insights analyse experience', ins.kind === 'linkedin-profile' && ins.summary?.employers === 4 && ins.findings.some((f) => f.code === 'overlap'), JSON.stringify({ kind: ins.kind, employers: ins.summary?.employers, codes: ins.findings?.map((f) => f.code) }));
+    check('card line is built', /Acme Corp: Head of Things, 2023–present; Globex: Engineer → Senior Engineer/.test(ins.summary.card), ins.summary.card);
+    // second visit with an edited profile: opening the popup captures again
+    const editedFixture = fixture.replace('Jan 2021 - Feb 2025 · 4 yrs 2 mos', 'Jan 2021 - Feb 2023 · 2 yrs 2 mos');
+    const cur2 = await send({ type: 'current', args: { tabId: liTab.id, snapshot: { title: 'Jane Doe | LinkedIn', text: editedFixture } } });
+    check('popup open adds a capture', cur2.note.snapshots.length === 2 && cur2.insights.captures === 2, `${cur2.note.snapshots.length} captures`);
+    check('edits between visits are detected', cur2.insights.edits?.some((e) => e.code === 'dates' && /were Jan 2021–Feb 2025, now Jan 2021–Feb 2023/.test(e.text)), JSON.stringify(cur2.insights.edits));
+    check('plain text diff is reported too', cur2.insights.changed && cur2.insights.changed.addedCount === 1 && cur2.insights.changed.removedCount === 1, JSON.stringify(cur2.insights.changed));
+    // an identical capture does not grow history
+    const cur3 = await send({ type: 'current', args: { tabId: liTab.id, snapshot: { title: 'Jane Doe | LinkedIn', text: editedFixture } } });
+    check('identical capture only bumps seen', cur3.note.snapshots.length === 2 && cur3.note.snapshots[1].seen > cur3.note.snapshots[1].at);
+    const detail = await send({ type: 'detail', args: { id: liNote.id } });
+    check('detail returns full snapshots with text', detail.note.snapshots[0].text.length > 500 && detail.insights.profile.experience.length === 5);
+    // the popup shows the insights
+    await popup.eval(`chrome.tabs.update(${liTab.id}, { active: true })`);
+    await popup.eval(`chrome.windows.update(${liTab.windowId}, { focused: true })`);
+    await popup.eval('location.reload()');
+    await sleep(1200);
+    const insRows = await popup.eval(`[...document.querySelectorAll('#insights .ins')].map((r) => r.className.replace('ins ', '')).join(',')`);
+    // the edited profile no longer overlaps, so there is no ask row; edit and summary remain
+    check('popup renders edit and summary rows', /edit/.test(insRows) && /summary/.test(insRows), insRows);
 
     // popup renders the current note
     await popup.eval(`chrome.tabs.update(${pr.id}, { active: true })`);
@@ -176,7 +210,7 @@ try {
     const opt = await CDP.connect(optT.webSocketDebuggerUrl);
     await sleep(1200);
     const optRows = await opt.eval(`document.querySelectorAll('#note-list .note').length`);
-    check('options page lists notes', optRows === 2, `${optRows} rows`);
+    check('options page lists notes', optRows === 3, `${optRows} rows`);
 } catch (e) {
     console.error('E2E ERROR', e);
     failures++;

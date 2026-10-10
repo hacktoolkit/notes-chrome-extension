@@ -43,6 +43,7 @@ function noteRow(r, { showRemind = false } = {}) {
         el('div', { class: 'm' }, [
             el('span', { text: showRemind && r.remind ? `⏰ ${fmt(r.remind)}` : `updated ${fmt(r.updated)}` }),
             el('span', { class: 'tools' }, [
+                el('button', { text: 'Details', onclick: () => chrome.tabs.create({ url: chrome.runtime.getURL(`src/note.html?id=${r.id}`) }) }),
                 el('button', { text: 'Open', onclick: () => chrome.tabs.create({ url: r.url }) }),
                 el('button', { class: 'ghost', text: 'Delete', onclick: async () => { if (confirm(`Delete the note for "${r.title}"?`)) { await send('deleteNote', { id: r.id }); await renderLists(); } } })
             ])

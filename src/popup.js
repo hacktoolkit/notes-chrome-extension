@@ -3,7 +3,7 @@
 
 const $ = (sel) => document.querySelector(sel);
 const APP_NAME = chrome.runtime.getManifest().name;
-let current = null; // { tab, ident, note }
+let current = null; // { tab, ident, note, insights }
 
 function send(type, args = {}) {
     return new Promise((resolve, reject) => {
@@ -77,6 +77,9 @@ function render() {
         rem.append(`⏰ Reminder ${fmt(note.remind)}`, el('button', { class: 'ghost', text: 'Clear', onclick: () => setReminder({ when: null }) }));
     }
 
+    $('#open-detail').hidden = !note;
+    renderInsights(current?.insights);
+
     const list = $('#entries');
     list.innerHTML = '';
     const entries = note?.entries || [];
@@ -91,6 +94,39 @@ function render() {
         li.append(when, renderText(e.text));
         list.append(li);
     });
+}
+
+function renderInsights(ins) {
+    const box = $('#insights');
+    box.innerHTML = '';
+    if (!ins) { box.hidden = true; return; }
+    const rows = [];
+    if (ins.edits?.length) {
+        for (const e of ins.edits.slice(0, 3)) rows.push(el('div', { class: 'ins edit' }, [el('span', { class: 'tag', text: 'edited' }), e.text]));
+    }
+    if (ins.findings?.length) {
+        for (const f of ins.findings.filter((x) => x.level === 'ask').slice(0, 3)) rows.push(el('div', { class: 'ins ask' }, [el('span', { class: 'tag', text: 'ask' }), f.text]));
+    }
+    if (ins.summary) {
+        const s = ins.summary;
+        rows.push(el('div', { class: 'ins summary' }, [
+            el('span', {}, [el('b', { text: `${s.years} yrs` }), ' exp']),
+            el('span', {}, [el('b', { text: String(s.employers) }), ' employers']),
+            el('span', {}, [el('b', { text: `${Math.round(s.averageTenureMonths / 12 * 10) / 10} yrs` }), ' avg tenure']),
+            el('a', { class: 'ghost', text: 'copy card', title: s.card, onclick: () => { navigator.clipboard.writeText(s.card); toast('Card line copied'); } })
+        ]));
+    } else if (ins.changed && (ins.changed.addedCount || ins.changed.removedCount || ins.changed.titleChanged)) {
+        rows.push(el('div', { class: 'ins edit' }, [el('span', { class: 'tag', text: 'changed' }), `Page changed since ${fmt(ins.changed.since)}: ${ins.changed.addedCount} lines added, ${ins.changed.removedCount} removed.`]));
+    }
+    const extra = (ins.findings?.length || 0) + (ins.edits?.length || 0) - rows.filter((r) => !r.classList.contains('summary')).length;
+    if (rows.length === 0 && ins.captures) rows.push(el('div', { class: 'more', text: `${ins.captures} capture${ins.captures === 1 ? '' : 's'} of this page kept locally.` }));
+    else if (extra > 0 || ins.captures > 1) rows.push(el('div', { class: 'more' }, [el('a', { text: `${extra > 0 ? `${extra} more · ` : ''}${ins.captures} capture${ins.captures === 1 ? '' : 's'} · details`, onclick: openDetail })]));
+    rows.forEach((r) => box.append(r));
+    box.hidden = rows.length === 0;
+}
+
+function openDetail() {
+    if (current?.note) chrome.tabs.create({ url: chrome.runtime.getURL(`src/note.html?id=${current.note.id}`) });
 }
 
 async function refresh() {
@@ -171,6 +207,7 @@ function init() {
     document.addEventListener('click', (e) => { if (!e.target.closest('.menu')) $('#remind-menu').hidden = true; });
     $('#open-all').addEventListener('click', (e) => { e.preventDefault(); chrome.tabs.create({ url: chrome.runtime.getURL('src/options.html#notes') }); });
     $('#open-options').addEventListener('click', (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); });
+    $('#open-detail').addEventListener('click', (e) => { e.preventDefault(); openDetail(); });
     refresh().then(() => $('#entry').focus());
 }
 init();

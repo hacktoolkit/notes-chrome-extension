@@ -11,7 +11,9 @@ Vanilla JavaScript, Manifest V3, no build step, no dependencies, no server. Noth
 - **Capture a quote.** Select text, right-click, "Add selection to this page's note".
 - **Remind me.** In an hour, tonight, tomorrow, next Monday, or at a time. The page reopens with a notification.
 - **Snooze a tab.** Close it now, get it back later. Also a keyboard shortcut and a right-click item.
-- **Snapshot.** The first entry on a page stores its title, description and leading text locally, so the note still makes sense if the page changes or vanishes.
+- **Captures.** Every time you save a note or open the popup on a page, what the page looked like is kept locally: title, core metadata (canonical URL, site, author, published date, JSON-LD types) and the page text. Identical captures collapse into one. So you have a local history of what you actually saw, and the note still makes sense if the page changes or vanishes.
+- **Changed since your last visit.** When a page differs from its previous capture, the popup says so and the note's detail page shows the added and removed lines.
+- **Profile insights.** On a LinkedIn profile the capture is parsed into a work history, and the extension points out what a careful reader would ask about: two full-time roles that overlap, two current full-time roles, dates that run backwards, short stints, long gaps. It also summarises years of experience, employers and average tenure, and builds a one-line card grouped by employer with promotions in order, ready to copy. Edits to the history between visits, such as an end date that moved, are called out separately. These are prompts for a conversation, never verdicts.
 - **Markdown export.** Every note is a `.md` file with YAML frontmatter. Download them all as a zip, import them back, or connect an Obsidian vault folder and have every save written straight into it.
 - **Search** across titles, URLs, tags and entries.
 
@@ -44,7 +46,9 @@ Likes cheese. Two kids, dog named Fluffy.
 
 ## Privacy
 
-Everything is stored in your browser profile with `chrome.storage.local`. No network requests, no accounts, no analytics. The page snapshot is captured only when you save a note on that page, using the `activeTab` grant that your click provides, and is never transmitted. Export and the Obsidian vault connection write files only where you choose.
+Everything is stored in your browser profile with `chrome.storage.local`. No network requests, no accounts, no analytics. A page is captured only when you act on it, saving a note or opening the popup there, using the `activeTab` grant that your click provides, and the capture never leaves the browser. There are no background content scripts and nothing runs on pages you merely visit. Export and the Obsidian vault connection write files only where you choose.
+
+Profile insights are computed locally from the text you captured, phrased as questions, and never make inferences about protected characteristics. Overlapping dates have ordinary explanations; the point is to know what to ask.
 
 ## Development
 
@@ -61,13 +65,15 @@ Browser testing never touches a real profile; see `AGENTS.md` for the holodeck. 
 
 ```
 src/background.js      service worker: messages, presence badge, reminders, snooze, context menu, export/import
-src/lib/notes.js       pure note model and Markdown (tested)
+src/lib/notes.js       pure note model, captures and Markdown (tested)
+src/lib/profile.js     pure profile parser, consistency analysis, edit detection, text diff (tested)
 src/lib/url.js         URL identity rules, copied from Organize Tabs (tested)
 src/lib/store.js       chrome.storage.local notes and index; Obsidian vault handle
 src/lib/zip.js         minimal zip writer for export (tested)
 src/lib/settings.js    settings in storage.sync with local fallback
 src/popup.*            the note for the current page
 src/options.*          all notes, reminders, backup and vault, settings, help
+src/note.*             one note in full: insights, changes, entries, captures
 scripts/e2e.mjs        headless browser suite
 scripts/dev.mjs        holodeck launcher
 ```

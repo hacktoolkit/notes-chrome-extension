@@ -7,9 +7,12 @@ Built from the Hacktoolkit Chrome extension skeleton. Vanilla JavaScript, Manife
 - **All operations run in the service worker.** The popup and options page send `chrome.runtime.sendMessage` and render results. Chrome closes the popup when a window is created or focused.
 - **The display name lives in `manifest.json` only.** Code reads `chrome.runtime.getManifest().name`; internal identifiers (storage keys, the `app:` frontmatter token, the IndexedDB name) are fixed strings and do not change with the name.
 - **One note per canonical page.** Identity comes from `identify()` in `src/lib/notes.js`, which uses the URL rules in `src/lib/url.js`. Never key anything on a raw URL.
-- **Pure logic is tested.** `notes.js`, `url.js` and `zip.js` have no Chrome APIs and have `node --test` suites. Markdown round-trip (`toMarkdown` / `fromMarkdown`) must stay lossless for entries, tags, reminder and key.
+- **Pure logic is tested.** `notes.js`, `profile.js`, `url.js` and `zip.js` have no Chrome APIs and have `node --test` suites. Markdown round-trip (`toMarkdown` / `fromMarkdown`) must stay lossless for entries, tags, reminder and key.
 - **Notes live in `chrome.storage.local`**, one item per note plus `notes:index`. Sync storage is capped at 100 KB total; only settings go there.
-- **Every capture is a user action.** Snapshots use the `activeTab` grant from the user's click. No background content scripts, no passive collection, nothing transmitted. This is a product rule, not just a store rule.
+- **Every capture is a user action.** Captures use the `activeTab` grant from the user's click (saving an entry, opening the popup). No background content scripts, no passive collection, nothing transmitted. This is a product rule, not just a store rule.
+- **Captures are history.** `addSnapshot` in `notes.js` appends to `note.snapshots` (capped, first kept, identical text collapses). Site parsers in `src/lib/profile.js` run on captures by rule name via `extractorFor`; add a parser by adding a fixture in `test/fixtures/` and tests first. Parsers must be text-based and tolerant; never DOM selectors.
+- **Insights are questions, not verdicts.** Findings carry `level: 'ask' | 'info'` and neutral wording ("ask about transition dates"). Never add a finding that infers intent or a protected characteristic. Promotions at one employer group together; gaps and short stints are `info`.
+- **No live LinkedIn in tests.** Parsers are developed against text fixtures only; e2e supplies captures through `args.snapshot`.
 - **`src/lib/url.js` is a copy** of the Organize Tabs module; see hacktoolkit/organize-tabs-chrome-extension#12 for the plan to share it. Keep changes in sync until then.
 - Code style per `.prettierrc`: 4 spaces, single quotes, semicolons.
 

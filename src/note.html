@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Note</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="note.css" />
+</head>
+<body>
+    <main>
+        <header class="head">
+            <div>
+                <h1 id="title"></h1>
+                <a id="url" href="#" target="_blank" rel="noopener"></a>
+                <div id="meta" class="muted"></div>
+            </div>
+            <div class="actions"><button id="copy-card" hidden>Copy card line</button><button id="copy-md">Copy as Markdown</button><a id="all" href="options.html#notes">All notes</a></div>
+        </header>
+        <section id="insights" class="card" hidden>
+            <h2>Insights</h2>
+            <div id="summary" class="summary"></div>
+            <div id="edits"></div>
+            <div id="findings"></div>
+            <div id="experience"></div>
+        </section>
+        <section id="changed" class="card" hidden>
+            <h2>Changed since your last visit</h2>
+            <div id="changed-body"></div>
+        </section>
+        <section class="card">
+            <h2>Entries</h2>
+            <ol id="entries" class="entries"></ol>
+        </section>
+        <section class="card">
+            <h2>Captures <span id="capture-count" class="pill"></span></h2>
+            <p class="muted">What the page looked like each time you saved or opened the popup here. Stored only in this browser.</p>
+            <div id="captures"></div>
+        </section>
+    </main>
+    <script type="module" src="note.js"></script>
+</body>
+</html>
