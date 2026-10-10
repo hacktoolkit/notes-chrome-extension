@@ -5,7 +5,7 @@ import { loadSettings } from './lib/settings.js';
 import { compileRules } from './lib/url.js';
 import {
     addEntry, addSnapshot, fileNameFor, fromMarkdown, identify, mergeNotes, matchesQuery, newNote,
-    presetTime, removeEntry, setReminder, toMarkdown, updateEntry
+    presetTime, removeEntry, setReminder, setToday, toMarkdown, todayIndex, updateEntry
 } from './lib/notes.js';
 
 // The popup does not need snapshot bodies; keep its messages small.
@@ -141,16 +141,18 @@ async function handle({ type, args = {} } = {}) {
             const tab = await tabFor(args);
             if (!tab || !tab.url) return { tab: null, note: null };
             let { ident, note, settings } = await noteForUrl(tab.url);
-            // Opening the popup is a user action on this tab: capture what the
-            // page looks like now, so history accrues even without an entry.
-            if (settings.snapshotOnSave && note && args.capture !== false) {
+            // Opening the popup is a user action on this tab: keep what the
+            // page looks like now. A page with no note yet gets a capture-only
+            // note, which stays out of the way until something is written.
+            if (settings.snapshotOnSave && args.capture !== false && /^https?:/.test(tab.url)) {
                 const cap = await captureFor(tab, ident, args);
                 if (cap) {
-                    const next = addSnapshot(note, cap);
+                    const base = note || newNote({ url: tab.url, title: tab.title || tab.url, key: ident.key, rule: ident.rule });
+                    const next = addSnapshot(base, cap);
                     if (next !== note) note = await putNote(next);
                 }
             }
-            return { tab: { id: tab.id, url: tab.url, title: tab.title }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null };
+            return { tab: { id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl || '' }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null, today: note ? todayIndex(note) : -1 };
         }
         case 'capture': {
             // user asked to keep what this page looks like, with no entry yet
@@ -186,6 +188,18 @@ async function handle({ type, args = {} } = {}) {
             }
             const saved = await persist(next, settings);
             return saved ? stripForPopup(saved) : saved;
+        }
+        case 'draft': {
+            // autosave from the popup editor: today's entry follows the text
+            const tab = await tabFor(args);
+            const url = args.url || tab?.url;
+            if (!url) throw new Error('No page to attach the note to');
+            const { ident, note, settings } = await noteForUrl(url);
+            const base = note || newNote({ url, title: args.title || tab?.title || url, key: ident.key, rule: ident.rule });
+            const next = setToday(base, args.text);
+            if (next === base && note) return { note: stripForPopup(note), today: todayIndex(note) };
+            const saved = await persist(next, settings);
+            return { note: saved ? stripForPopup(saved) : null, today: saved ? todayIndex(saved) : -1 };
         }
         case 'updateEntry': {
             const note = await getNote(args.id);
@@ -227,6 +241,7 @@ async function handle({ type, args = {} } = {}) {
         case 'list': {
             const index = await getIndex();
             let rows = Object.values(index);
+            if (!args.includeCaptures) rows = rows.filter((r) => r.entries > 0 || r.remind);
             if (args.query) {
                 const notes = await allNotes();
                 const ids = new Set(notes.filter((n) => matchesQuery(n, args.query)).map((n) => n.id));

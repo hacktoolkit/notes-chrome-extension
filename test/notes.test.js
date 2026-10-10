@@ -131,3 +131,25 @@ test('addSnapshot ignores an identical capture within the hour', async () => {
     assert.notEqual(later, n);
     assert.equal(later.snapshots[0].seen, '2026-01-01T02:00:00.000Z');
 });
+
+test('setToday creates, updates and removes the day\'s entry without duplicating it', async () => {
+    const { setToday, todayIndex, localDay } = await import('../src/lib/notes.js');
+    const day = new Date('2026-10-11T09:00:00');
+    let n = newNote({ url: 'https://e.com/', title: 'E', key: 'k', now: new Date('2026-10-10T09:00:00') });
+    n = addEntry(n, 'yesterday', new Date('2026-10-10T09:00:00'));
+    assert.equal(todayIndex(n, day), -1);
+    n = setToday(n, 'first words', day);
+    assert.equal(n.entries.length, 2);
+    assert.equal(todayIndex(n, day), 1);
+    const later = new Date('2026-10-11T17:30:00');
+    n = setToday(n, 'first words, then more', later);
+    assert.equal(n.entries.length, 2, 'same day edits the entry');
+    assert.equal(n.entries[1].text, 'first words, then more');
+    assert.equal(localDay(n.entries[1].at), '2026-10-11', 'keeps the first timestamp of the day');
+    assert.ok(n.entries[1].edited);
+    const unchanged = setToday(n, 'first words, then more', later);
+    assert.equal(unchanged, n, 'identical text is a no-op');
+    n = setToday(n, '   ', later);
+    assert.equal(n.entries.length, 1, 'emptying removes the day');
+    assert.equal(setToday(n, '', later), n);
+});

@@ -14,7 +14,7 @@ function setState(text) { $('#save-state').textContent = text; }
 function noteRow(r, { showRemind = false } = {}) {
     return el('div', { class: 'note', 'data-id': r.id }, [
         el('a', { class: 't', href: r.url, target: '_blank', rel: 'noopener', text: r.title || r.url }),
-        el('div', { class: 'u', text: `${r.host} · ${r.entries} entr${r.entries === 1 ? 'y' : 'ies'}${r.captures ? ` · ${r.captures} capture${r.captures === 1 ? '' : 's'}` : ''}${r.rule ? ` · ${r.rule}` : ''}` }),
+        el('div', { class: 'u', text: `${r.host}${r.entries ? ` · ${r.entries} entr${r.entries === 1 ? 'y' : 'ies'}` : ' · captured only'}${r.captures ? ` · ${r.captures} capture${r.captures === 1 ? '' : 's'}` : ''}${r.rule ? ` · ${r.rule}` : ''}` }),
         el('div', { class: 'p', text: r.preview }),
         el('div', { class: 'm' }, [
             el('span', { text: showRemind && r.remind ? `⏰ ${fmt(r.remind)}` : `updated ${fmt(r.updated)}` }),
@@ -28,7 +28,7 @@ function noteRow(r, { showRemind = false } = {}) {
 }
 
 async function renderLists() {
-    const rows = await send('list', { query: $('#search').value });
+    const rows = await send('list', { query: $('#search').value, includeCaptures: $('#include-captures').checked });
     const list = $('#note-list');
     list.innerHTML = '';
     $('#note-count').textContent = String(rows.length);
@@ -148,6 +148,7 @@ async function init() {
     await renderVault();
 
     $('#search').addEventListener('input', () => renderLists());
+    $('#include-captures').addEventListener('change', () => renderLists());
     $('#export').addEventListener('click', () => exportAll().catch((e) => { $('#backup-status').textContent = e.message; }));
     $('#import').addEventListener('click', () => $('#import-file').click());
     $('#import-file').addEventListener('change', (e) => importFiles(e.target.files).catch((err) => { $('#backup-status').textContent = err.message; }).finally(() => { e.target.value = ''; }));

@@ -22,7 +22,10 @@
         <main>
             <section id="notes" class="card">
                 <h2>All notes <span id="note-count" class="pill"></span></h2>
-                <input type="search" id="search" placeholder="Search titles, URLs, tags and entries" />
+                <div class="list-head">
+                    <input type="search" id="search" placeholder="Search titles, URLs, tags and entries" />
+                    <label class="toggle"><input type="checkbox" id="include-captures" /> Include pages you only captured</label>
+                </div>
                 <div id="note-list" class="notes"></div>
             </section>
 
@@ -68,9 +71,9 @@
             <section id="help" class="card">
                 <h2>Help</h2>
                 <div class="help-list">
-                    <div class="help-item"><b>Add a note</b><span>Click the toolbar icon on any page and type. Ctrl+Enter saves. Each save is a dated entry.</span></div>
+                    <div class="help-item"><b>Add a note</b><span>Click the toolbar icon on any page and type. It saves as you type. Each day you write becomes a dated entry; click an earlier entry to edit it in place.</span></div>
                     <div class="help-item"><b>Capture a quote</b><span>Select text on a page, right-click, "Add selection to this page's note".</span></div>
-                    <div class="help-item"><b>Remind me</b><span>Remind… in the popup. The page reopens at that time with a notification.</span></div>
+                    <div class="help-item"><b>Remind me</b><span>One click under the editor: 1h, tonight, tomorrow, next week, or pick a time. The page reopens at that time with a notification.</span></div>
                     <div class="help-item"><b>Snooze a tab</b><span>Closes the tab now and reopens it later. Also in the right-click menu and as a keyboard shortcut.</span></div>
                     <div class="help-item"><b>Export</b><span>Backup &amp; vault downloads every note as Markdown, or writes them into an Obsidian vault folder.</span></div>
                 </div>

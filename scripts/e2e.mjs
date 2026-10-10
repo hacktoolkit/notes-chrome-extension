@@ -217,15 +217,43 @@ try {
     const capTab = (await tabs()).find((t) => /capture\.test\/page/.test(t.url));
     const capOnly = await send({ type: 'capture', args: { tabId: capTab.id, snapshot: { title: 'Capture', text: 'line one\nline two' } } });
     check('capture without an entry creates a note with history', capOnly.note && capOnly.note.entries.length === 0 && capOnly.note.snapshots.length === 1, JSON.stringify({ entries: capOnly.note?.entries?.length, snaps: capOnly.note?.snapshots?.length }));
-    check('capture-only note is listed', (await send({ type: 'list' })).some((r) => r.id === capOnly.note.id));
+    check('capture-only note is hidden from the default list', !(await send({ type: 'list' })).some((r) => r.id === capOnly.note.id));
+    check('capture-only note is listed when asked', (await send({ type: 'list', args: { includeCaptures: true } })).some((r) => r.id === capOnly.note.id));
+
+    // autosave: the editor writes today's entry, same day edits it
+    await popup.eval(`chrome.windows.create({ url: ['https://draft.test/page'], focused: false })`);
+    await sleep(600);
+    const draftTab = (await tabs()).find((t) => /draft\.test\/page/.test(t.url));
+    let d = await send({ type: 'draft', args: { tabId: draftTab.id, text: 'typing' } });
+    check('draft creates today\'s entry', d.note && d.note.entries.length === 1 && d.today === 0, JSON.stringify({ entries: d.note?.entries?.length, today: d.today }));
+    d = await send({ type: 'draft', args: { tabId: draftTab.id, text: 'typing more' } });
+    check('draft updates today\'s entry in place', d.note.entries.length === 1 && d.note.entries[0].text === 'typing more');
+    d = await send({ type: 'draft', args: { tabId: draftTab.id, text: '' } });
+    check('emptying the editor removes today\'s entry', !d.note || d.note.entries.length === 0);
+    d = await send({ type: 'draft', args: { tabId: draftTab.id, text: 'back again' } });
+    await popup.eval(`chrome.tabs.update(${draftTab.id}, { active: true })`);
+    await popup.eval(`chrome.windows.update(${draftTab.windowId}, { focused: true })`);
+    await popup.eval('location.reload()');
+    await sleep(1200);
+    const editorValue = await popup.eval(`document.querySelector('#entry').value`);
+    check('popup editor shows today\'s entry on open', editorValue === 'back again', editorValue);
+    const hasSave = await popup.eval(`!!document.querySelector('#save')`);
+    check('no Save button', !hasSave);
+    // typing in the editor autosaves and says so
+    await popup.eval(`const t = document.querySelector('#entry'); t.value = 'back again, typed'; t.dispatchEvent(new Event('input'));`);
+    await sleep(1200);
+    const status = await popup.eval(`document.querySelector('#status').textContent`);
+    const typed = await send({ type: 'get', args: { id: d.note.id } });
+    check('typing autosaves today\'s entry', /^Saved /.test(status) && typed.entries[0].text === 'back again, typed', `${status} | ${typed.entries[0]?.text}`);
 
     // popup renders the current note
     await popup.eval(`chrome.tabs.update(${pr.id}, { active: true })`);
     await popup.eval(`chrome.windows.update(${pr.windowId}, { focused: true })`);
     await popup.eval('location.reload()');
     await sleep(1200);
-    const rendered = await popup.eval(`document.querySelectorAll('#entries .entry').length + ':' + document.querySelector('#page-title').textContent`);
-    check('popup renders entries for the active page', /^1:/.test(rendered), rendered);
+    // the PR note's only entry was written today, so it lives in the editor, not the list
+    const rendered = await popup.eval(`document.querySelector('#entry').value + '|' + document.querySelectorAll('#entries .entry').length`);
+    check('popup shows today\'s entry in the editor for the active page', rendered === 'Reviewed. Waiting on CI.|0', rendered);
 
     // options page lists notes
     await browser.send('Target.createTarget', { url: `chrome-extension://${extId}/src/options.html` });
@@ -233,7 +261,7 @@ try {
     const opt = await CDP.connect(optT.webSocketDebuggerUrl);
     await sleep(1200);
     const optRows = await opt.eval(`document.querySelectorAll('#note-list .note').length`);
-    check('options page lists notes', optRows === 4, `${optRows} rows`);
+    check('options page lists notes with entries', optRows === 4, `${optRows} rows`);
 } catch (e) {
     console.error('E2E ERROR', e);
     failures++;

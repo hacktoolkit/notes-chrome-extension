@@ -96,9 +96,12 @@ try {
     const shots = {};
     shots.popup = await popup.shot(join(OUT, 'popup.png'), { width: 360, height: 640 });
     await popup.shot(join(OUT, 'popup-dark.png'), { width: 360, height: 640, dark: true });
-    await popup.eval(`document.querySelector('#remind-btn').click()`); await sleep(300);
+    await popup.eval(`chrome.tabs.update(${jira.id}, { active: true })`);
+    await popup.eval('location.reload()'); await sleep(1200);
+    await popup.eval(`const t = document.querySelector('#entry'); t.value = 'Blocked on the vendor. Check again Monday.'; t.dispatchEvent(new Event('input'));`); await sleep(900);
     shots.remind = await popup.shot(join(OUT, 'popup-remind.png'), { width: 360, height: 640 });
-    await popup.eval(`document.querySelector('#remind-menu').hidden = true`);
+    await popup.eval(`chrome.tabs.update(${li.id}, { active: true })`);
+    await popup.eval('location.reload()'); await sleep(1200);
     await browser.send('Target.createTarget', { url: `chrome-extension://${extId}/src/note.html?id=${liId}`, newWindow: true, width: 900, height: 760 });
     const noteT = await waitFor((t) => t.url.includes('/src/note.html'));
     const note = await CDP.connect(noteT.webSocketDebuggerUrl);

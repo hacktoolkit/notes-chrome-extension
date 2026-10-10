@@ -50,6 +50,34 @@ export function addEntry(note, text, now = new Date()) {
     return { ...note, updated: iso, entries: [...note.entries, { at: iso, text: body }] };
 }
 
+// Local calendar day of a timestamp, for "today's entry".
+export function localDay(iso, now = new Date()) {
+    const d = iso ? new Date(iso) : now;
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export function todayIndex(note, now = new Date()) {
+    const today = localDay(null, now);
+    const entries = note?.entries || [];
+    for (let i = entries.length - 1; i >= 0; i--) {
+        if (localDay(entries[i].at, now) === today) return i;
+    }
+    return -1;
+}
+
+// The editor writes today's entry as the user types: create it on the first
+// keystroke, update it after, remove it when emptied. The entry keeps its
+// first timestamp so a day's note is one dated block.
+export function setToday(note, text, now = new Date()) {
+    const body = (text || '').trim();
+    const i = todayIndex(note, now);
+    if (i < 0) return body ? addEntry(note, body, now) : note;
+    if (!body) return removeEntry(note, i, now);
+    if (note.entries[i].text === body) return note;
+    return { ...note, updated: now.toISOString(), entries: note.entries.map((e, j) => (j === i ? { ...e, text: body, edited: now.toISOString() } : e)) };
+}
+
 export function updateEntry(note, index, text, now = new Date()) {
     const entries = note.entries.map((e, i) => (i === index ? { ...e, text: (text || '').trim(), edited: now.toISOString() } : e));
     return { ...note, updated: now.toISOString(), entries: entries.filter((e) => e.text) };

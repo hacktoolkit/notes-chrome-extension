@@ -12,12 +12,12 @@ Vanilla JavaScript, Manifest V3, no build step, no dependencies, no server. Noth
 
 ## What it does
 
-- **One note per page, many dated entries.** Click the toolbar icon on any page and type. Each save is a timestamped entry. The toolbar icon shows how many entries the current page has.
+- **One note per page, many dated entries.** Click the toolbar icon on any page and type. It saves as you type; there is no Save button. Each day you write becomes a dated entry, and earlier entries edit in place with a click. The toolbar icon shows how many entries the current page has.
 - **The note follows the page.** A pull request and its Files tab, a Jira issue and its board link, a LinkedIn profile and its Experience page, a Google Doc in edit and view mode: one note. Nineteen built-in identity rules, the same engine as [Organize Tabs](https://github.com/hacktoolkit/organize-tabs-chrome-extension), editable with a live tester.
 - **Capture a quote.** Select text, right-click, "Add selection to this page's note".
-- **Remind me.** In an hour, tonight, tomorrow, next Monday, or at a time. The page reopens with a notification.
-- **Snooze a tab.** Close it now, get it back later. Also a keyboard shortcut and a right-click item.
-- **Captures.** Every time you save a note or open the popup on a page, what the page looked like is kept locally: title, core metadata (canonical URL, site, author, published date, JSON-LD types) and the page text. Identical captures collapse into one. So you have a local history of what you actually saw, and the note still makes sense if the page changes or vanishes.
+- **Remind me.** One click under the editor: in an hour, tonight, tomorrow, next week, or pick a time. The page reopens with a notification.
+- **Snooze a tab.** One click: close it now, get it back tomorrow morning. Also a keyboard shortcut and a right-click item.
+- **Captures.** Every time you open the popup on a page, what the page looked like is kept locally: title, core metadata (canonical URL, site, author, published date, JSON-LD types) and the page text. Identical captures collapse into one. So you have a local history of what you actually saw, and the note still makes sense if the page changes or vanishes.
 - **Changed since your last visit.** When a page differs from its previous capture, the popup says so and the note's detail page shows the added and removed lines.
 - **Profile insights.** On a LinkedIn profile the capture is parsed into a work history, and the extension points out what a careful reader would ask about: two full-time roles that overlap, two current full-time roles, dates that run backwards, short stints, long gaps. It also summarises years of experience, employers and average tenure, and builds a one-line card grouped by employer with promotions in order, ready to copy. Edits to the history between visits, such as an end date that moved, are called out separately. These are prompts for a conversation, never verdicts.
 - **Markdown export.** Every note is a `.md` file with YAML frontmatter. Download them all as a zip, which also carries every capture as plain text under `captures/`, import notes back, or connect an Obsidian vault folder and have every save written straight into it.

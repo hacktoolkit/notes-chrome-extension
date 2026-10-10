@@ -4,9 +4,9 @@
 const $ = (sel) => document.querySelector(sel);
 import { el, fmt, send } from './lib/ui.js';
 const APP_NAME = chrome.runtime.getManifest().name;
-let current = null; // { tab, ident, note, insights }
-
-
+let current = null; // { tab, ident, note, insights, today }
+let draftTimer = null;
+let lastSentText = null;
 
 let toastTimer;
 function toast(msg, error = false) {
@@ -18,9 +18,13 @@ function toast(msg, error = false) {
     toastTimer = setTimeout(() => { t.hidden = true; }, 2500);
 }
 
+function setStatus(text, cls = '') {
+    const st = $('#status');
+    st.textContent = text;
+    st.className = `status ${cls}`;
+}
 
 function renderText(text) {
-    // quotes ("> ") get a bar; everything else is plain text
     const wrap = el('div', { class: 'text' });
     let quote = null;
     for (const line of text.split('\n')) {
@@ -35,55 +39,13 @@ function renderText(text) {
     return wrap;
 }
 
-function render() {
-    const { tab, ident, note } = current || {};
-    $('#empty').hidden = !!tab;
-    $('#compose').hidden = !tab;
-    $('#page-title').textContent = tab ? (note?.title || tab.title || tab.url) : APP_NAME;
-    $('#page-url').textContent = tab ? tab.url : '';
-    const rule = $('#rule');
-    rule.hidden = !ident?.rule;
-    rule.textContent = ident?.rule || '';
-    rule.title = ident ? `This note follows the page: ${ident.key}` : '';
-
-    const rem = $('#reminder');
-    rem.hidden = !note?.remind;
-    rem.innerHTML = '';
-    if (note?.remind) {
-        rem.append(`⏰ Reminder ${fmt(note.remind)}`, el('button', { class: 'ghost', text: 'Clear', onclick: () => setReminder({ when: null }) }));
-    }
-
-    $('#open-detail').hidden = !note;
-    $('#capture').hidden = !tab || !!(note && note.snapshots && note.snapshots.length);
-    renderInsights(current?.insights);
-
-    const list = $('#entries');
-    list.innerHTML = '';
-    const entries = note?.entries || [];
-    entries.map((e, i) => ({ ...e, i })).reverse().forEach((e) => {
-        const li = el('li', { class: 'entry' });
-        const when = el('div', { class: 'when' }, [fmt(e.at), e.edited ? el('span', { class: 'muted', text: '(edited)' }) : null]);
-        const tools = el('span', { class: 'tools' }, [
-            el('button', { class: 'ghost', text: 'Edit', onclick: () => editEntry(li, e) }),
-            el('button', { class: 'ghost', text: 'Delete', onclick: () => removeEntry(e.i) })
-        ]);
-        when.append(tools);
-        li.append(when, renderText(e.text));
-        list.append(li);
-    });
-}
-
 function renderInsights(ins) {
     const box = $('#insights');
     box.innerHTML = '';
     if (!ins) { box.hidden = true; return; }
     const rows = [];
-    if (ins.edits?.length) {
-        for (const e of ins.edits.slice(0, 3)) rows.push(el('div', { class: 'ins edit' }, [el('span', { class: 'tag', text: 'edited' }), e.text]));
-    }
-    if (ins.findings?.length) {
-        for (const f of ins.findings.filter((x) => x.level === 'ask').slice(0, 3)) rows.push(el('div', { class: 'ins ask' }, [el('span', { class: 'tag', text: 'ask' }), f.text]));
-    }
+    for (const e of (ins.edits || []).slice(0, 3)) rows.push(el('div', { class: 'ins edit' }, [el('span', { class: 'tag', text: 'edited' }), e.text]));
+    for (const f of (ins.findings || []).filter((x) => x.level === 'ask').slice(0, 3)) rows.push(el('div', { class: 'ins ask' }, [el('span', { class: 'tag', text: 'ask' }), f.text]));
     if (ins.summary) {
         const s = ins.summary;
         rows.push(el('div', { class: 'ins summary' }, [
@@ -93,11 +55,13 @@ function renderInsights(ins) {
             el('a', { class: 'ghost', text: 'copy card', title: s.card, onclick: () => { navigator.clipboard.writeText(s.card); toast('Card line copied'); } })
         ]));
     } else if (ins.changed && (ins.changed.addedCount || ins.changed.removedCount || ins.changed.titleChanged)) {
-        rows.push(el('div', { class: 'ins edit' }, [el('span', { class: 'tag', text: 'changed' }), `Page changed since ${fmt(ins.changed.since)}: ${ins.changed.addedCount} lines added, ${ins.changed.removedCount} removed.`]));
+        rows.push(el('div', { class: 'ins edit' }, [el('span', { class: 'tag', text: 'changed' }), `Changed since ${fmt(ins.changed.since)}: ${ins.changed.addedCount} lines added, ${ins.changed.removedCount} removed.`]));
     }
-    const extra = (ins.findings?.length || 0) + (ins.edits?.length || 0) - rows.filter((r) => !r.classList.contains('summary')).length;
-    if (rows.length === 0 && ins.captures) rows.push(el('div', { class: 'more', text: `${ins.captures} capture${ins.captures === 1 ? '' : 's'} of this page kept locally.` }));
-    else if (extra > 0 || ins.captures > 1) rows.push(el('div', { class: 'more' }, [el('a', { text: `${extra > 0 ? `${extra} more · ` : ''}${ins.captures} capture${ins.captures === 1 ? '' : 's'} · details`, onclick: openDetail })]));
+    const shown = rows.filter((r) => !r.classList.contains('summary')).length;
+    const extra = (ins.findings?.length || 0) + (ins.edits?.length || 0) - shown;
+    if (rows.length > 0 || ins.captures > 1) {
+        rows.push(el('div', { class: 'more' }, [el('a', { text: `${extra > 0 ? `${extra} more · ` : ''}${ins.captures} capture${ins.captures === 1 ? '' : 's'} · details`, onclick: openDetail })]));
+    }
     rows.forEach((r) => box.append(r));
     box.hidden = rows.length === 0;
 }
@@ -106,94 +70,151 @@ function openDetail() {
     if (current?.note) chrome.tabs.create({ url: chrome.runtime.getURL(`src/note.html?id=${current.note.id}`) });
 }
 
-async function refresh() {
+function render({ keepEditor = false } = {}) {
+    const { tab, ident, note, today } = current || {};
+    $('#empty').hidden = !!tab;
+    $('#compose').hidden = !tab;
+    $('#page-title').textContent = tab ? (note?.title || tab.title || tab.url) : APP_NAME;
+    $('#page-url').textContent = tab ? tab.url.replace(/^https?:\/\//, '') : '';
+    const fav = $('#fav');
+    fav.src = tab?.favIconUrl && !tab.favIconUrl.startsWith('chrome://') ? tab.favIconUrl : '../img/icon32.png';
+    const rule = $('#rule');
+    rule.hidden = !ident?.rule;
+    rule.textContent = ident?.rule || '';
+    rule.title = ident ? `This note follows the page: ${ident.key}` : '';
+    $('#open-detail').hidden = !note;
+
+    // the editor holds today's entry
+    const editor = $('#entry');
+    const todayEntry = note && today >= 0 ? note.entries[today] : null;
+    if (!keepEditor) {
+        editor.value = todayEntry ? todayEntry.text : '';
+        lastSentText = editor.value;
+    }
+    $('#today-label').textContent = todayEntry ? `Today, started ${fmt(todayEntry.at).slice(11)}` : 'Today';
+
+    const rem = $('#reminder');
+    rem.hidden = !note?.remind;
+    rem.innerHTML = '';
+    if (note?.remind) rem.append(`⏰ ${fmt(note.remind)}`, el('button', { class: 'ghost', text: 'clear', onclick: () => setReminder({ when: null }) }));
+    document.querySelectorAll('#chips .chip[data-preset]').forEach((c) => c.classList.toggle('on', false));
+
+    renderInsights(current?.insights);
+
+    const list = $('#entries');
+    list.innerHTML = '';
+    const entries = (note?.entries || []).map((e, i) => ({ ...e, i })).filter((e) => e.i !== today).reverse();
+    for (const e of entries) {
+        const li = el('li', { class: 'entry' });
+        const text = renderText(e.text);
+        const when = el('div', { class: 'when' }, [fmt(e.at), e.edited ? el('span', { class: 'muted', text: '(edited)' }) : null]);
+        when.append(el('span', { class: 'tools' }, [el('button', { class: 'ghost', text: 'delete', onclick: () => removeEntry(e.i) })]));
+        text.addEventListener('click', () => editInPlace(li, text, e));
+        li.append(when, text);
+        list.append(li);
+    }
+    if (entries.length > 0) list.append(el('li', { class: 'hint', text: 'Click an entry to edit it. Changes save as you type.' }));
+}
+
+async function refresh(opts) {
     try {
-        current = await send('current');
+        current = await send('current', { tabId: current?.tab?.id });
     } catch (e) {
         current = null;
         toast(e.message, true);
     }
-    render();
+    render(opts);
 }
 
-async function save() {
-    const text = $('#entry').value.trim();
-    if (!text) return;
-    try {
-        await send('addEntry', { tabId: current.tab.id, text });
-        $('#entry').value = '';
-        toast('Saved');
-        await refresh();
-    } catch (e) { toast(e.message, true); }
+// ----- autosave: the editor is today's entry --------------------
+
+function scheduleDraft() {
+    const text = $('#entry').value;
+    if (text === lastSentText) return;
+    setStatus('Saving…', 'saving');
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(flushDraft, 400);
 }
 
-async function captureNow() {
+async function flushDraft() {
+    clearTimeout(draftTimer);
+    const text = $('#entry').value;
+    if (text === lastSentText || !current?.tab) return;
+    lastSentText = text;
     try {
-        await send('capture', { tabId: current.tab.id });
-        toast('Captured');
-        await refresh();
-    } catch (e) { toast(e.message, true); }
+        const r = await send('draft', { tabId: current.tab.id, text });
+        current = { ...current, note: r.note, today: r.today };
+        setStatus(text.trim() ? `Saved ${fmt(new Date().toISOString()).slice(11)}` : '', 'saved');
+        render({ keepEditor: true });
+    } catch (e) {
+        setStatus(e.message, 'error');
+    }
+}
+
+// ----- older entries: edit in place --------------------
+
+function editInPlace(li, textNode, e) {
+    if (textNode.getAttribute('contenteditable') === 'true') return;
+    li.classList.add('editing');
+    textNode.textContent = e.text;
+    textNode.setAttribute('contenteditable', 'true');
+    textNode.focus();
+    let timer = null;
+    const save = async () => {
+        const value = textNode.innerText.trim();
+        if (value === e.text) return;
+        try {
+            const note = await send('updateEntry', { id: current.note.id, index: e.i, text: value });
+            current = { ...current, note };
+            e.text = value;
+            setStatus(`Saved ${fmt(new Date().toISOString()).slice(11)}`, 'saved');
+        } catch (err) { toast(err.message, true); }
+    };
+    textNode.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(save, 500); });
+    textNode.addEventListener('blur', async () => { clearTimeout(timer); await save(); await refresh({ keepEditor: true }); });
 }
 
 async function removeEntry(index) {
-    try { await send('removeEntry', { id: current.note.id, index }); await refresh(); } catch (e) { toast(e.message, true); }
+    try { await send('removeEntry', { id: current.note.id, index }); await refresh({ keepEditor: true }); } catch (e) { toast(e.message, true); }
 }
 
-function editEntry(li, e) {
-    const ta = el('textarea', { rows: 3 });
-    ta.value = e.text;
-    const row = el('div', { class: 'row' }, [
-        el('button', { class: 'primary', text: 'Save', onclick: async () => { try { await send('updateEntry', { id: current.note.id, index: e.i, text: ta.value }); await refresh(); } catch (err) { toast(err.message, true); } } }),
-        el('button', { text: 'Cancel', onclick: render })
-    ]);
-    li.querySelector('.text').replaceWith(ta);
-    li.append(row);
-    ta.focus();
-}
+// ----- reminders and snooze --------------------
 
 async function setReminder({ preset, when }) {
     try {
-        if (!current.note) {
-            // a reminder needs a note; create one from whatever is typed, or a placeholder entry
-            const text = $('#entry').value.trim() || 'Reminder set';
-            await send('addEntry', { tabId: current.tab.id, text });
-            $('#entry').value = '';
-            await refresh();
+        await flushDraft();
+        if (!current.note || current.note.entries.length === 0) {
+            // a reminder needs something to come back to
+            const r = await send('draft', { tabId: current.tab.id, text: $('#entry').value.trim() || 'Reminder set.' });
+            current = { ...current, note: r.note, today: r.today };
         }
         await send('setReminder', { id: current.note.id, preset, when });
-        $('#remind-menu').hidden = true;
         toast(preset || when ? 'Reminder set' : 'Reminder cleared');
-        await refresh();
+        await refresh({ keepEditor: true });
     } catch (e) { toast(e.message, true); }
 }
 
 async function snoozeTab() {
-    const at = $('#remind-at').value;
-    const text = $('#entry').value.trim();
     try {
-        await send('snoozeTab', { tabId: current.tab.id, preset: at ? null : 'tomorrow', when: at ? new Date(at).toISOString() : null, text });
+        await flushDraft();
+        await send('snoozeTab', { tabId: current.tab.id, preset: 'tomorrow' });
         window.close();
     } catch (e) { toast(e.message, true); }
 }
 
 function init() {
-    $('#save').addEventListener('click', save);
-    $('#capture').addEventListener('click', captureNow);
-    $('#entry').addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') save(); });
-    $('#remind-btn').addEventListener('click', (e) => {
-        const m = $('#remind-menu');
-        const r = e.currentTarget.getBoundingClientRect();
-        m.style.left = `${Math.round(r.left)}px`;
-        m.style.top = `${Math.round(r.bottom + 4)}px`;
-        m.hidden = !m.hidden;
-    });
-    document.querySelectorAll('#remind-menu [data-preset]').forEach((b) => b.addEventListener('click', () => setReminder({ preset: b.dataset.preset })));
+    const editor = $('#entry');
+    editor.addEventListener('input', scheduleDraft);
+    editor.addEventListener('blur', flushDraft);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDraft(); });
+    window.addEventListener('pagehide', flushDraft);
+    document.querySelectorAll('#chips .chip[data-preset]').forEach((b) => b.addEventListener('click', () => setReminder({ preset: b.dataset.preset })));
     $('#remind-at').addEventListener('change', (e) => { if (e.target.value) setReminder({ when: new Date(e.target.value).toISOString() }); });
-    document.querySelector('#remind-menu .snooze').addEventListener('click', snoozeTab);
-    document.addEventListener('click', (e) => { if (!e.target.closest('.menu')) $('#remind-menu').hidden = true; });
+    $('#snooze').addEventListener('click', snoozeTab);
     $('#open-all').addEventListener('click', (e) => { e.preventDefault(); chrome.tabs.create({ url: chrome.runtime.getURL('src/options.html#notes') }); });
     $('#open-options').addEventListener('click', (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); });
     $('#open-detail').addEventListener('click', (e) => { e.preventDefault(); openDetail(); });
-    refresh().then(() => $('#entry').focus());
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { flushDraft().then(() => window.close()); } });
+    refresh().then(() => { editor.focus(); editor.setSelectionRange(editor.value.length, editor.value.length); });
 }
 init();
