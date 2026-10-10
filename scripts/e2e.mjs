@@ -154,8 +154,6 @@ try {
     // export and import round-trip
     const exp = await send({ type: 'export' });
     check('export zips every note', exp.count === 2 && exp.base64.length > 100, `${exp.count} notes`);
-    const expNote = (await send({ type: 'list' })).find((r) => r.id === n2.id);
-    check('exported note has an excerpt line only when captured', expNote && true);
     const md = await popup.eval(`(async () => { const m = await import('./lib/notes.js'); const s = await import('./lib/store.js'); const n = await s.getNote('${n2.id}'); return m.toMarkdown(n); })()`);
     check('markdown has frontmatter and a dated heading', /^---\ntitle: /.test(md) && /## \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(md));
     await send({ type: 'deleteNote', args: { id: n2.id } });
@@ -196,6 +194,14 @@ try {
     // the edited profile no longer overlaps, so there is no ask row; edit and summary remain
     check('popup renders edit and summary rows', /edit/.test(insRows) && /summary/.test(insRows), insRows);
 
+    // capture-only note: keeps the page without an entry, survives in the index
+    await popup.eval(`chrome.windows.create({ url: ['https://capture.test/page'], focused: false })`);
+    await sleep(600);
+    const capTab = (await tabs()).find((t) => t.url === 'https://capture.test/page');
+    const capOnly = await send({ type: 'capture', args: { tabId: capTab.id, snapshot: { title: 'Capture', text: 'line one\nline two' } } });
+    check('capture without an entry creates a note with history', capOnly.note && capOnly.note.entries.length === 0 && capOnly.note.snapshots.length === 1, JSON.stringify({ entries: capOnly.note?.entries?.length, snaps: capOnly.note?.snapshots?.length }));
+    check('capture-only note is listed', (await send({ type: 'list' })).some((r) => r.id === capOnly.note.id));
+
     // popup renders the current note
     await popup.eval(`chrome.tabs.update(${pr.id}, { active: true })`);
     await popup.eval(`chrome.windows.update(${pr.windowId}, { focused: true })`);
@@ -210,7 +216,7 @@ try {
     const opt = await CDP.connect(optT.webSocketDebuggerUrl);
     await sleep(1200);
     const optRows = await opt.eval(`document.querySelectorAll('#note-list .note').length`);
-    check('options page lists notes', optRows === 3, `${optRows} rows`);
+    check('options page lists notes', optRows === 4, `${optRows} rows`);
 } catch (e) {
     console.error('E2E ERROR', e);
     failures++;

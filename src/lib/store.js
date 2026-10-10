@@ -19,8 +19,8 @@ export async function getIndex() {
 
 export async function putNote(note) {
     const index = await getIndex();
-    if (note.entries.length === 0 && !note.remind) {
-        // an empty note is a deleted note
+    if (note.entries.length === 0 && !note.remind && !(note.snapshots && note.snapshots.length)) {
+        // a note with no entries, reminder or captures is a deleted note
         delete index[note.id];
         await chrome.storage.local.remove(noteKey(note.id));
         await chrome.storage.local.set({ [INDEX_KEY]: index });

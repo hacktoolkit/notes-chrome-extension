@@ -92,3 +92,29 @@ test('diffLines and extractorFor', () => {
     assert.equal(extractorFor('LinkedIn profile'), parseLinkedInProfile);
     assert.equal(extractorFor('GitHub pull request'), null);
 });
+
+test('duplicated lines (visible + hidden copies) parse the same as clean text', () => {
+    const clean = fx('linkedin-overlap.txt');
+    const doubled = clean.split('\n').flatMap((l) => (l ? [l, l] : [l])).join('\n');
+    const a = parseLinkedInProfile(clean);
+    const b = parseLinkedInProfile(doubled);
+    assert.deepEqual(b.experience, a.experience);
+    assert.equal(b.name, a.name);
+    assert.equal(b.education.length, a.education.length);
+});
+
+test('truncated capture and stated years are surfaced as findings', () => {
+    const p = parseLinkedInProfile(fx('linkedin-overlap.txt'));
+    assert.equal(p.listedExperiences, 7);
+    const { findings } = analyzeProfile(p, NOW);
+    const t = findings.find((f) => f.code === 'truncated');
+    assert.ok(t && /7 experiences listed, 5 captured/.test(t.text), t?.text);
+    // a claim is only checked when the history is complete
+    assert.ok(!findings.some((f) => f.code === 'claim'));
+    const claimed = `Sam Example\nEngineer with 15+ years of experience\nExperience\nEngineer\nHooli · Full-time\nJan 2020 - Present · 6 yrs\n`;
+    const q = parseLinkedInProfile(claimed);
+    assert.equal(q.claimedYears, 15);
+    const r = analyzeProfile(q, NOW);
+    const c = r.findings.find((f) => f.code === 'claim');
+    assert.ok(c && /States 15\+ years .* covers about 6\.\d|covers about 6/.test(c.text), c?.text);
+});

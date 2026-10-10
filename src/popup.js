@@ -78,6 +78,7 @@ function render() {
     }
 
     $('#open-detail').hidden = !note;
+    $('#capture').hidden = !tab || !!(note && note.snapshots && note.snapshots.length);
     renderInsights(current?.insights);
 
     const list = $('#entries');
@@ -150,6 +151,14 @@ async function save() {
     } catch (e) { toast(e.message, true); }
 }
 
+async function captureNow() {
+    try {
+        await send('capture', { tabId: current.tab.id });
+        toast('Captured');
+        await refresh();
+    } catch (e) { toast(e.message, true); }
+}
+
 async function removeEntry(index) {
     try { await send('removeEntry', { id: current.note.id, index }); await refresh(); } catch (e) { toast(e.message, true); }
 }
@@ -193,6 +202,7 @@ async function snoozeTab() {
 
 function init() {
     $('#save').addEventListener('click', save);
+    $('#capture').addEventListener('click', captureNow);
     $('#entry').addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') save(); });
     $('#remind-btn').addEventListener('click', (e) => {
         const m = $('#remind-menu');

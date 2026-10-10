@@ -47,11 +47,16 @@ export function fmtDate(d) {
 }
 
 function cleanLines(text) {
-    return text
-        .replace(/\r/g, '')
-        .split('\n')
-        .map((l) => l.replace(/\s+/g, ' ').trim())
-        .filter((l) => l && !NOISE_RE.test(l));
+    const out = [];
+    for (const raw of text.replace(/\r/g, '').split('\n')) {
+        const l = raw.replace(/\s+/g, ' ').trim();
+        if (!l || NOISE_RE.test(l)) continue;
+        // LinkedIn renders most text twice (a visible span and a visually
+        // hidden copy), which innerText reports as consecutive duplicates
+        if (out.length && out[out.length - 1] === l) continue;
+        out.push(l);
+    }
+    return out;
 }
 
 // Slices a named section out of the line list: from the heading line to the
@@ -146,14 +151,23 @@ export function parseEducation(lines) {
 // Full LinkedIn profile parse from captured innerText. Tolerant: anything it
 // cannot read is simply absent.
 export function parseLinkedInProfile(text) {
-    const lines = cleanLines(text || '');
+    const raw = text || '';
+    const lines = cleanLines(raw);
+    const showAll = /show all (\d+) experiences?/i.exec(raw);
+    const claim = /(\d{1,2})\s*\+?\s*(?:years|yrs)(?:'|’)?(?:\s+of)?(?:\s+(?:professional|industry|hands-on|work))?\s+experience/i.exec(raw.slice(0, 3000));
     const expIdx = lines.findIndex((l) => l.toLowerCase() === 'experience');
     const name = lines[0] && lines[0].length < 80 ? lines[0] : '';
     const headline = lines[1] && lines[1].length < 200 && lines[1].toLowerCase() !== 'about' ? lines[1] : '';
     const location = lines.slice(0, 6).find((l) => /,\s*[A-Za-z ]+$/.test(l) && !l.includes('·') && l !== name && l !== headline) || '';
     const experience = parseExperience(sectionLines(lines, 'Experience'));
     const education = parseEducation(sectionLines(lines, 'Education'));
-    return { kind: 'linkedin-profile', name, headline, location, experience, education, parsed: expIdx >= 0 };
+    return {
+        kind: 'linkedin-profile',
+        name, headline, location, experience, education,
+        parsed: expIdx >= 0,
+        listedExperiences: showAll ? Number(showAll[1]) : null,
+        claimedYears: claim ? Number(claim[1]) : null
+    };
 }
 
 // ----- analysis ------------------------------------------------------------
@@ -244,6 +258,11 @@ export function analyzeProfile(profile, now = new Date()) {
         }
     }
 
+    // truncated capture: the page offered more roles than were visible
+    if (profile.listedExperiences && profile.listedExperiences > positions.length) {
+        findings.push({ level: 'info', code: 'truncated', text: `${profile.listedExperiences} experiences listed, ${positions.length} captured. Open "Show all" on the page and capture again for the full history.` });
+    }
+
     // total experience, non-overlapping months
     const covered = new Set();
     for (const p of positions) {
@@ -264,8 +283,14 @@ export function analyzeProfile(profile, now = new Date()) {
         return `${g.company}: ${titles}, ${span}`;
     }).join('; ');
 
+    // a stated "N+ years" that the visible history does not reach
+    const years = Math.round((totalMonths / 12) * 10) / 10;
+    if (profile.claimedYears && !(profile.listedExperiences > positions.length) && years < profile.claimedYears - 1) {
+        findings.push({ level: 'ask', code: 'claim', text: `States ${profile.claimedYears}+ years of experience; the visible history covers about ${years}. Ask what the earlier years were.` });
+    }
+
     const summary = {
-        years: Math.round((totalMonths / 12) * 10) / 10,
+        years,
         employers: groups.length,
         averageTenureMonths: avgTenure,
         completedStints: completed.length,

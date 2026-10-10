@@ -144,6 +144,18 @@ async function handle({ type, args = {} } = {}) {
             }
             return { tab: { id: tab.id, url: tab.url, title: tab.title }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null };
         }
+        case 'capture': {
+            // user asked to keep what this page looks like, with no entry yet
+            const tab = await tabFor(args);
+            if (!tab?.url) throw new Error('No page to capture');
+            const { ident, note, settings } = await noteForUrl(tab.url);
+            const cap = args.snapshot || await capturePage(tab.id, { maxChars: ident.rule === 'LinkedIn profile' ? 40000 : 6000 });
+            if (!cap) throw new Error('Could not read this page. Chrome pages and some sites cannot be captured.');
+            let next = note || newNote({ url: tab.url, title: tab.title || tab.url, key: ident.key, rule: ident.rule });
+            next = addSnapshot(next, { ...cap, structured: structure(ident, cap) });
+            const saved = await persist(next, settings);
+            return { note: saved ? stripForPopup(saved) : null, insights: saved ? insightsFor(saved) : null };
+        }
         case 'insights': {
             const note = await getNote(args.id);
             return note ? insightsFor(note) : null;
