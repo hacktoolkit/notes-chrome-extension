@@ -38,7 +38,7 @@ function setState(text) { $('#save-state').textContent = text; }
 function noteRow(r, { showRemind = false } = {}) {
     return el('div', { class: 'note', 'data-id': r.id }, [
         el('a', { class: 't', href: r.url, target: '_blank', rel: 'noopener', text: r.title || r.url }),
-        el('div', { class: 'u', text: `${r.host} · ${r.entries} entr${r.entries === 1 ? 'y' : 'ies'}` }),
+        el('div', { class: 'u', text: `${r.host} · ${r.entries} entr${r.entries === 1 ? 'y' : 'ies'}${r.captures ? ` · ${r.captures} capture${r.captures === 1 ? '' : 's'}` : ''}${r.rule ? ` · ${r.rule}` : ''}` }),
         el('div', { class: 'p', text: r.preview }),
         el('div', { class: 'm' }, [
             el('span', { text: showRemind && r.remind ? `⏰ ${fmt(r.remind)}` : `updated ${fmt(r.updated)}` }),

@@ -232,6 +232,8 @@ export function indexEntry(note) {
         updated: note.updated,
         remind: note.remind,
         entries: note.entries.length,
+        captures: (note.snapshots || []).length,
+        rule: note.rule || null,
         preview: (last?.text || '').slice(0, 120)
     };
 }
