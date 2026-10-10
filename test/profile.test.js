@@ -118,3 +118,29 @@ test('truncated capture and stated years are surfaced as findings', () => {
     const c = r.findings.find((f) => f.code === 'claim');
     assert.ok(c && /States 15\+ years .* covers about 6\.\d|covers about 6/.test(c.text), c?.text);
 });
+
+test('varied formatting: self-employed, no employment type, lowercase present, en dashes, internship', () => {
+    const p = parseLinkedInProfile(fx('linkedin-varied.txt'));
+    assert.equal(p.name, 'Alex Example');
+    assert.equal(p.location, 'Austin, Texas, United States');
+    const roles = p.experience.map((e) => `${e.title}@${e.company}|${e.type || '-'}|${fmtDate(e.start)}-${fmtDate(e.end)}`);
+    assert.deepEqual(roles, [
+        'Founder & CEO@Example Labs|Self-employed|Jun 2022-Present',
+        'Advisor@Startup Collective|-|2021-2023',
+        'Director of Data@Globex|Full-time|Jan 2019-May 2022',
+        'Data Engineer@Globex|Full-time|Mar 2016-Dec 2018',
+        'Data Analyst@Initech|Internship|Jun 2015-Aug 2015'
+    ]);
+    assert.equal(p.education.length, 1);
+    assert.equal(p.education[0].school, 'University of Texas at Austin');
+    assert.equal(p.education[0].degree, '');
+    assert.equal(p.listedExperiences, null);
+    const { findings, summary } = analyzeProfile(p, NOW);
+    // the Advisor role has no type and overlaps the Globex and Example Labs years,
+    // but Self-employed and untyped-vs-full-time are flagged only when both are full-time
+    const asks = findings.filter((f) => f.level === 'ask').map((f) => f.code);
+    assert.deepEqual(asks.filter((c) => c === 'overlap'), ['overlap']);
+    assert.match(findings.find((f) => f.code === 'overlap').text, /Advisor at Startup Collective .* overlaps Director of Data at Globex/);
+    assert.equal(summary.employers, 4);
+    assert.ok(summary.years >= 10, String(summary.years));
+});
