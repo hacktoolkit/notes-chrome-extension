@@ -3,7 +3,7 @@
     "name": "Page Notes",
     "short_name": "Page Notes",
     "version": "1.0.0",
-    "description": "Notes in the margins of the web. A note on any page follows it across URL variants, with dated entries, reminders and Markdown export.",
+    "description": "Notes that follow the page, a local record of what it looked like, reminders, snoozed tabs and Markdown export.",
     "author": "Hacktoolkit (@hacktoolkit)",
     "minimum_chrome_version": "121",
     "icons": { "16": "img/icon16.png", "32": "img/icon32.png", "48": "img/icon48.png", "128": "img/icon128.png" },
