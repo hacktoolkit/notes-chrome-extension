@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Page Notes</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+    <div class="page">
+        <aside class="side">
+            <div class="brand"><img src="../img/icon32.png" alt="" width="24" height="24" /><div><b id="app-name"></b><span id="version" class="muted"></span></div></div>
+            <nav>
+                <a href="#notes" class="on">All notes</a>
+                <a href="#reminders">Reminders</a>
+                <a href="#backup">Backup &amp; vault</a>
+                <a href="#settings">Settings</a>
+                <a href="#help">Help</a>
+            </nav>
+            <div id="save-state" class="save-state muted"></div>
+        </aside>
+        <main>
+            <section id="notes" class="card">
+                <h2>All notes <span id="note-count" class="pill"></span></h2>
+                <input type="search" id="search" placeholder="Search titles, URLs, tags and entries" />
+                <div id="note-list" class="notes"></div>
+            </section>
+
+            <section id="reminders" class="card">
+                <h2>Reminders</h2>
+                <p class="muted">Pages you asked to be reminded about, soonest first. Snoozed tabs appear here too.</p>
+                <div id="reminder-list" class="notes"></div>
+            </section>
+
+            <section id="backup" class="card">
+                <h2>Backup &amp; vault</h2>
+                <p class="muted">Notes are stored in this browser profile. Export them as Markdown files, one per page, with YAML frontmatter that Obsidian understands.</p>
+                <div class="toolbar">
+                    <button id="export" class="primary">Download all notes (.zip of .md)</button>
+                    <button id="import">Import .md files…</button>
+                    <input type="file" id="import-file" accept=".md,text/markdown" multiple hidden />
+                    <span id="backup-status" class="muted"></span>
+                </div>
+                <h3>Obsidian vault</h3>
+                <p class="muted">Connect a folder inside your vault and every note is written there as a Markdown file on save. The browser asks you to re-allow access once per session.</p>
+                <div class="toolbar">
+                    <button id="vault-connect">Connect vault folder…</button>
+                    <button id="vault-reconnect" hidden>Re-allow access</button>
+                    <button id="vault-write" hidden>Write all notes now</button>
+                    <button id="vault-disconnect" class="ghost" hidden>Disconnect</button>
+                    <span id="vault-status" class="muted"></span>
+                </div>
+            </section>
+
+            <section id="settings" class="card">
+                <h2>Settings</h2>
+                <div class="row"><div class="lbl"><b>Count on the toolbar icon</b><span>Shows how many entries the current page has.</span></div><label class="switch"><input type="checkbox" id="showBadge" /><i></i></label></div>
+                <div class="row"><div class="lbl"><b>Open the page when a reminder fires</b><span>Otherwise you only get a notification.</span></div><label class="switch"><input type="checkbox" id="openTabOnReminder" /><i></i></label></div>
+                <div class="row"><div class="lbl"><b>Keep a snapshot of the page</b><span>On the first entry for a page, store its title, description and leading text locally, so the note still makes sense if the page changes or disappears. Never sent anywhere.</span></div><label class="switch"><input type="checkbox" id="snapshotOnSave" /><i></i></label></div>
+                <div class="row"><div class="lbl"><b>Write to the vault on save</b></div><label class="switch"><input type="checkbox" id="writeToVault" /><i></i></label></div>
+                <h3>Page identity rules</h3>
+                <p class="muted">A note follows its page across URL variants: a pull request and its Files tab, a Jira issue and its board link, a profile and its subpages. Rules are regular expressions with a key template, the same format as Organize Tabs. Test a URL to see the key it gets.</p>
+                <div class="tester"><input type="url" id="test-url" placeholder="Paste a URL" spellcheck="false" /><div id="test-result" class="muted"></div></div>
+                <textarea id="rules" rows="14" spellcheck="false"></textarea>
+                <div class="toolbar"><button id="rules-apply" class="primary">Apply rules</button><button id="rules-reset">Reset to built-in</button><span id="rules-error" class="pill warn" hidden></span></div>
+            </section>
+
+            <section id="help" class="card">
+                <h2>Help</h2>
+                <div class="help-list">
+                    <div class="help-item"><b>Add a note</b><span>Click the toolbar icon on any page and type. Ctrl+Enter saves. Each save is a dated entry.</span></div>
+                    <div class="help-item"><b>Capture a quote</b><span>Select text on a page, right-click, "Add selection to this page's note".</span></div>
+                    <div class="help-item"><b>Remind me</b><span>Remind… in the popup. The page reopens at that time with a notification.</span></div>
+                    <div class="help-item"><b>Snooze a tab</b><span>Closes the tab now and reopens it later. Also in the right-click menu and as a keyboard shortcut.</span></div>
+                    <div class="help-item"><b>Export</b><span>Backup &amp; vault downloads every note as Markdown, or writes them into an Obsidian vault folder.</span></div>
+                </div>
+                <p class="muted" style="margin-top:14px">Open source under the MIT license. <a id="repo-link" href="https://github.com/hacktoolkit/notes-chrome-extension" target="_blank" rel="noopener">Source and issues on GitHub</a>.</p>
+            </section>
+        </main>
+    </div>
+    <script type="module" src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,176 @@
+// The popup shows the note for the current page and sends every change to the
+// service worker.
+
+const $ = (sel) => document.querySelector(sel);
+const APP_NAME = chrome.runtime.getManifest().name;
+let current = null; // { tab, ident, note }
+
+function send(type, args = {}) {
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ type, args }, (r) => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else if (!r || !r.ok) reject(new Error(r?.error || 'No response'));
+            else resolve(r.result);
+        });
+    });
+}
+
+function el(tag, attrs = {}, children = []) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+        if (k === 'class') node.className = v;
+        else if (k === 'text') node.textContent = v;
+        else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+        else if (v !== undefined && v !== null && v !== false) node.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of [].concat(children)) if (c !== null && c !== undefined) node.append(c.nodeType ? c : document.createTextNode(c));
+    return node;
+}
+
+let toastTimer;
+function toast(msg, error = false) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.className = `toast${error ? ' error' : ''}`;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 2500);
+}
+
+function fmt(iso) {
+    const d = new Date(iso);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderText(text) {
+    // quotes ("> ") get a bar; everything else is plain text
+    const wrap = el('div', { class: 'text' });
+    let quote = null;
+    for (const line of text.split('\n')) {
+        if (line.startsWith('> ')) {
+            if (!quote) { quote = el('div', { class: 'q' }); wrap.append(quote); }
+            quote.append(el('div', { text: line.slice(2) }));
+        } else {
+            quote = null;
+            wrap.append(el('div', { text: line || ' ' }));
+        }
+    }
+    return wrap;
+}
+
+function render() {
+    const { tab, ident, note } = current || {};
+    $('#empty').hidden = !!tab;
+    $('#compose').hidden = !tab;
+    $('#page-title').textContent = tab ? (note?.title || tab.title || tab.url) : APP_NAME;
+    $('#page-url').textContent = tab ? tab.url : '';
+    const rule = $('#rule');
+    rule.hidden = !ident?.rule;
+    rule.textContent = ident?.rule || '';
+    rule.title = ident ? `This note follows the page: ${ident.key}` : '';
+
+    const rem = $('#reminder');
+    rem.hidden = !note?.remind;
+    rem.innerHTML = '';
+    if (note?.remind) {
+        rem.append(`⏰ Reminder ${fmt(note.remind)}`, el('button', { class: 'ghost', text: 'Clear', onclick: () => setReminder({ when: null }) }));
+    }
+
+    const list = $('#entries');
+    list.innerHTML = '';
+    const entries = note?.entries || [];
+    entries.map((e, i) => ({ ...e, i })).reverse().forEach((e) => {
+        const li = el('li', { class: 'entry' });
+        const when = el('div', { class: 'when' }, [fmt(e.at), e.edited ? el('span', { class: 'muted', text: '(edited)' }) : null]);
+        const tools = el('span', { class: 'tools' }, [
+            el('button', { class: 'ghost', text: 'Edit', onclick: () => editEntry(li, e) }),
+            el('button', { class: 'ghost', text: 'Delete', onclick: () => removeEntry(e.i) })
+        ]);
+        when.append(tools);
+        li.append(when, renderText(e.text));
+        list.append(li);
+    });
+}
+
+async function refresh() {
+    try {
+        current = await send('current');
+    } catch (e) {
+        current = null;
+        toast(e.message, true);
+    }
+    render();
+}
+
+async function save() {
+    const text = $('#entry').value.trim();
+    if (!text) return;
+    try {
+        await send('addEntry', { tabId: current.tab.id, text });
+        $('#entry').value = '';
+        toast('Saved');
+        await refresh();
+    } catch (e) { toast(e.message, true); }
+}
+
+async function removeEntry(index) {
+    try { await send('removeEntry', { id: current.note.id, index }); await refresh(); } catch (e) { toast(e.message, true); }
+}
+
+function editEntry(li, e) {
+    const ta = el('textarea', { rows: 3 });
+    ta.value = e.text;
+    const row = el('div', { class: 'row' }, [
+        el('button', { class: 'primary', text: 'Save', onclick: async () => { try { await send('updateEntry', { id: current.note.id, index: e.i, text: ta.value }); await refresh(); } catch (err) { toast(err.message, true); } } }),
+        el('button', { text: 'Cancel', onclick: render })
+    ]);
+    li.querySelector('.text').replaceWith(ta);
+    li.append(row);
+    ta.focus();
+}
+
+async function setReminder({ preset, when }) {
+    try {
+        if (!current.note) {
+            // a reminder needs a note; create one from whatever is typed, or a placeholder entry
+            const text = $('#entry').value.trim() || 'Reminder set';
+            await send('addEntry', { tabId: current.tab.id, text });
+            $('#entry').value = '';
+            await refresh();
+        }
+        await send('setReminder', { id: current.note.id, preset, when });
+        $('#remind-menu').hidden = true;
+        toast(preset || when ? 'Reminder set' : 'Reminder cleared');
+        await refresh();
+    } catch (e) { toast(e.message, true); }
+}
+
+async function snoozeTab() {
+    const at = $('#remind-at').value;
+    const text = $('#entry').value.trim();
+    try {
+        await send('snoozeTab', { tabId: current.tab.id, preset: at ? null : 'tomorrow', when: at ? new Date(at).toISOString() : null, text });
+        window.close();
+    } catch (e) { toast(e.message, true); }
+}
+
+function init() {
+    $('#save').addEventListener('click', save);
+    $('#entry').addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') save(); });
+    $('#remind-btn').addEventListener('click', (e) => {
+        const m = $('#remind-menu');
+        const r = e.currentTarget.getBoundingClientRect();
+        m.style.left = `${Math.round(r.left)}px`;
+        m.style.top = `${Math.round(r.bottom + 4)}px`;
+        m.hidden = !m.hidden;
+    });
+    document.querySelectorAll('#remind-menu [data-preset]').forEach((b) => b.addEventListener('click', () => setReminder({ preset: b.dataset.preset })));
+    $('#remind-at').addEventListener('change', (e) => { if (e.target.value) setReminder({ when: new Date(e.target.value).toISOString() }); });
+    document.querySelector('#remind-menu .snooze').addEventListener('click', snoozeTab);
+    document.addEventListener('click', (e) => { if (!e.target.closest('.menu')) $('#remind-menu').hidden = true; });
+    $('#open-all').addEventListener('click', (e) => { e.preventDefault(); chrome.tabs.create({ url: chrome.runtime.getURL('src/options.html#notes') }); });
+    $('#open-options').addEventListener('click', (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); });
+    refresh().then(() => $('#entry').focus());
+}
+init();

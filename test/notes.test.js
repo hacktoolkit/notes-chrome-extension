@@ -1,0 +1,86 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { addEntry, fileNameFor, fromMarkdown, identify, matchesQuery, mergeNotes, newNote, noteId, presetTime, removeEntry, setReminder, toMarkdown, updateEntry } from '../src/lib/notes.js';
+import { DEFAULT_RULES, compileRules } from '../src/lib/url.js';
+
+const { compiled } = compileRules(DEFAULT_RULES);
+
+test('identify collapses URL variants to one note id', () => {
+    const a = identify('https://github.com/dataro/app/pull/482', compiled, {});
+    const b = identify('https://github.com/dataro/app/pull/482/files#diff', compiled, {});
+    assert.equal(a.id, b.id);
+    assert.equal(a.rule, 'GitHub pull request');
+    assert.notEqual(a.id, identify('https://github.com/dataro/app/pull/483', compiled, {}).id);
+    assert.match(noteId('x'), /^[0-9a-f]{12}$/);
+});
+
+test('entries are dated and ordered; empty text is ignored', () => {
+    let n = newNote({ url: 'https://example.com/a', title: 'A', key: 'https://example.com/a', now: new Date('2026-10-11T01:00:00Z') });
+    n = addEntry(n, '  ', new Date('2026-10-11T02:00:00Z'));
+    assert.equal(n.entries.length, 0);
+    n = addEntry(n, 'first', new Date('2026-10-11T02:00:00Z'));
+    n = addEntry(n, 'second', new Date('2026-10-12T02:00:00Z'));
+    assert.deepEqual(n.entries.map((e) => e.text), ['first', 'second']);
+    assert.equal(n.updated, '2026-10-12T02:00:00.000Z');
+    n = updateEntry(n, 0, 'first, edited');
+    assert.equal(n.entries[0].text, 'first, edited');
+    assert.ok(n.entries[0].edited);
+    n = removeEntry(n, 1);
+    assert.equal(n.entries.length, 1);
+    n = setReminder(n, '2026-11-01T09:00:00Z');
+    assert.equal(n.remind, '2026-11-01T09:00:00.000Z');
+});
+
+test('markdown round-trips with frontmatter and dated sections', () => {
+    let n = newNote({ url: 'https://www.linkedin.com/in/jane/', title: 'Jane Doe | LinkedIn', key: 'linkedin:in/jane', rule: 'LinkedIn profile', now: new Date('2026-10-11T01:00:00Z') });
+    n = addEntry(n, 'Likes cheese.\nTwo kids, dog named Fluffy.', new Date('2026-10-11T03:02:00Z'));
+    n = addEntry(n, '> quoted line\nmet at the meetup', new Date('2026-10-18T22:30:00Z'));
+    n = { ...n, tags: ['people', 'sales'], remind: '2026-11-01T09:00:00.000Z', snapshot: { at: n.updated, text: 'Jane Doe - Head of Things at Acme "quoted"' } };
+    const md = toMarkdown(n);
+    assert.match(md, /^---\ntitle: "Jane Doe \| LinkedIn"\nurl: https:\/\/www\.linkedin\.com\/in\/jane\/\nkey: linkedin:in\/jane\nrule: "LinkedIn profile"\n/);
+    assert.match(md, /tags: \[people, sales\]/);
+    assert.match(md, /excerpt: "Jane Doe - Head of Things at Acme \\"quoted\\""/);
+    // newest entry first in the file
+    assert.ok(md.indexOf('met at the meetup') < md.indexOf('Likes cheese'));
+    const back = fromMarkdown(md);
+    assert.equal(back.id, n.id);
+    assert.equal(back.key, n.key);
+    assert.equal(back.title, n.title);
+    assert.deepEqual(back.tags, ['people', 'sales']);
+    assert.equal(back.remind, n.remind);
+    assert.deepEqual(back.entries.map((e) => e.text), n.entries.map((e) => e.text));
+    // headings are local wall-clock; the parsed timestamp must match to the minute
+    assert.equal(Math.abs(new Date(back.entries[0].at) - new Date(n.entries[0].at)) < 60000, true);
+    assert.equal(fileNameFor(n), `jane-doe-linkedin-${n.id}.md`);
+});
+
+test('fromMarkdown accepts hand-written notes and rejects junk', () => {
+    const hand = `---\ntitle: Plain\nurl: https://example.com/x\nkey: https://example.com/x\n---\nJust a paragraph with no heading.\n\n## 2026-10-12\nA dated one.\n`;
+    const n = fromMarkdown(hand);
+    assert.equal(n.entries.length, 2);
+    assert.equal(n.entries[1].text, 'A dated one.');
+    assert.throws(() => fromMarkdown('no frontmatter'), /frontmatter/);
+    assert.throws(() => fromMarkdown('---\ntitle: x\n---\n'), /url and key/);
+});
+
+test('mergeNotes unions entries without duplicates', () => {
+    let a = newNote({ url: 'https://e.com/', title: 'E', key: 'https://e.com/', now: new Date('2026-01-01T00:00:00Z') });
+    a = addEntry(a, 'one', new Date('2026-01-02T00:00:00Z'));
+    let b = addEntry(a, 'two', new Date('2026-01-03T00:00:00Z'));
+    b = { ...b, tags: ['t'] };
+    const m = mergeNotes(a, b);
+    assert.deepEqual(m.entries.map((e) => e.text), ['one', 'two']);
+    assert.deepEqual(m.tags, ['t']);
+    assert.equal(mergeNotes(null, b), b);
+});
+
+test('matchesQuery and presets', () => {
+    const n = addEntry(newNote({ url: 'https://e.com/', title: 'Acme plan', key: 'k' }), 'budget for Q4');
+    assert.ok(matchesQuery(n, 'acme q4'));
+    assert.ok(!matchesQuery(n, 'zebra'));
+    const now = new Date('2026-10-11T10:00:00');
+    assert.equal(presetTime('1h', now), new Date('2026-10-11T11:00:00').toISOString());
+    assert.equal(presetTime('tomorrow', now), new Date('2026-10-12T09:00:00').toISOString());
+    assert.equal(new Date(presetTime('nextweek', now)).getDay(), 1);
+    assert.equal(presetTime('nope', now), null);
+});

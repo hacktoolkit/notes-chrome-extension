@@ -1,50 +1,22 @@
 {
-  "manifest_version": 2,
-
-  "name": "URL Notes",
-  "version": "0.1.0",
-
-  "author": "Hacktoolkit (@hacktoolkit)",
-
-  "description": "Chrome extension to allow users to easily take and store notes on URLs directly on the browser.",
-
-  "browser_action": {
-    "default_icon": {
-      "16": "img/get_started16.png",
-      "32": "img/get_started32.png",
-      "48": "img/get_started48.png",
-      "128": "img/get_started128.png"
+    "manifest_version": 3,
+    "name": "Page Notes",
+    "short_name": "Page Notes",
+    "version": "1.0.0",
+    "description": "Notes in the margins of the web. A note on any page follows it across URL variants, with dated entries, reminders and Markdown export.",
+    "author": "Hacktoolkit (@hacktoolkit)",
+    "minimum_chrome_version": "121",
+    "icons": { "16": "img/icon16.png", "32": "img/icon32.png", "48": "img/icon48.png", "128": "img/icon128.png" },
+    "action": {
+        "default_icon": { "16": "img/icon16.png", "32": "img/icon32.png" },
+        "default_popup": "src/popup.html",
+        "default_title": "Page Notes"
     },
-    "default_popup": "dist/popup.html",
-    "default_title": "URL Notes"
-  },
-
-  "options_ui": {
-    "page": "dist/options.html",
-    "chrome_style": true
-  },
-
-  "background": {
-    "scripts": [
-      "backgroundScriptOnInstall.js"
-    ],
-    "persistent": false
-  },
-
-  "permissions": [
-    "declarativeContent",
-    "storage",
-    "tabs"
-  ],
-
-  "commands": {
-    "_execute_browser_action": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+N",
-        "mac": "MacCtrl+Shift+N"
-      },
-      "description": "Opens the extension popup with the following key shortcut."
+    "options_ui": { "page": "src/options.html", "open_in_tab": true },
+    "background": { "service_worker": "src/background.js", "type": "module" },
+    "permissions": ["tabs", "storage", "unlimitedStorage", "alarms", "notifications", "contextMenus", "activeTab", "scripting"],
+    "commands": {
+        "_execute_action": { "suggested_key": { "default": "Alt+Shift+N" }, "description": "Open Page Notes for this page" },
+        "snoozeTab": { "description": "Snooze this tab until tomorrow morning" }
     }
-  },
-  "content_security_policy": "script-src 'self' https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js; object-src 'self'"
 }

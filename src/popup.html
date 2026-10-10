@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Page Notes</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+    <header class="head">
+        <img src="../img/icon32.png" alt="" width="20" height="20" />
+        <div class="head-text">
+            <h1 id="page-title"></h1>
+            <div id="page-url" class="muted"></div>
+        </div>
+        <span id="rule" class="pill" hidden></span>
+    </header>
+
+    <main>
+        <div id="empty" class="empty" hidden>No page to annotate here.</div>
+        <section id="compose">
+            <textarea id="entry" rows="3" placeholder="Add a note about this page…"></textarea>
+            <div class="row">
+                <button id="save" class="primary">Save</button>
+                <div class="menu">
+                    <button id="remind-btn" title="Remind me about this page">Remind…</button>
+                    <div id="remind-menu" class="dropdown" hidden>
+                        <button data-preset="1h">In 1 hour</button>
+                        <button data-preset="3h">In 3 hours</button>
+                        <button data-preset="tonight">Tonight 18:00</button>
+                        <button data-preset="tomorrow">Tomorrow 9:00</button>
+                        <button data-preset="nextweek">Next Monday 9:00</button>
+                        <label>At <input type="datetime-local" id="remind-at" /></label>
+                        <button data-snooze="1" class="snooze">Snooze tab (close now, reopen then)</button>
+                    </div>
+                </div>
+                <span class="spacer"></span>
+                <span id="status" class="muted"></span>
+            </div>
+        </section>
+        <div id="reminder" class="reminder" hidden></div>
+        <ol id="entries" class="entries"></ol>
+    </main>
+
+    <footer class="foot">
+        <a href="#" id="open-all">All notes</a>
+        <span class="spacer"></span>
+        <a href="#" id="open-options">Settings</a>
+    </footer>
+    <div id="toast" class="toast" hidden></div>
+    <script type="module" src="popup.js"></script>
+</body>
+</html>
