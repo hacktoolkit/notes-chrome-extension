@@ -168,7 +168,8 @@ try {
     const fixture = readFileSync(pjoin(EXT, 'test', 'fixtures', 'linkedin-overlap.txt'), 'utf8');
     await popup.eval(`chrome.windows.create({ url: ['http://www.linkedin.com/in/jane-doe/'], focused: false })`);
     await sleep(800);
-    const liTab = (await tabs()).find((t) => t.url.startsWith('http://www.linkedin.com/in/jane-doe'));
+    // HSTS preload may upgrade the scheme; match on host and path only
+    const liTab = (await tabs()).find((t) => /linkedin\.com\/in\/jane-doe/.test(t.url));
     const liNote = await send({ type: 'addEntry', args: { tabId: liTab.id, title: 'Jane Doe | LinkedIn', text: 'Screening for the CSE role.', snapshot: { title: 'Jane Doe | LinkedIn', text: fixture, meta: { siteName: 'LinkedIn' } } } });
     check('linkedin capture is parsed into a structured snapshot', liNote.snapshots?.length === 1 && liNote.rule === 'LinkedIn profile', JSON.stringify({ snaps: liNote.snapshots?.length, rule: liNote.rule }));
     let ins = await send({ type: 'insights', args: { id: liNote.id } });
@@ -197,7 +198,7 @@ try {
     // capture-only note: keeps the page without an entry, survives in the index
     await popup.eval(`chrome.windows.create({ url: ['https://capture.test/page'], focused: false })`);
     await sleep(600);
-    const capTab = (await tabs()).find((t) => t.url === 'https://capture.test/page');
+    const capTab = (await tabs()).find((t) => /capture\.test\/page/.test(t.url));
     const capOnly = await send({ type: 'capture', args: { tabId: capTab.id, snapshot: { title: 'Capture', text: 'line one\nline two' } } });
     check('capture without an entry creates a note with history', capOnly.note && capOnly.note.entries.length === 0 && capOnly.note.snapshots.length === 1, JSON.stringify({ entries: capOnly.note?.entries?.length, snaps: capOnly.note?.snapshots?.length }));
     check('capture-only note is listed', (await send({ type: 'list' })).some((r) => r.id === capOnly.note.id));
