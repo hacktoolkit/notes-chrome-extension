@@ -72,9 +72,14 @@ function openDetail() {
 }
 
 function render({ keepEditor = false } = {}) {
-    const { tab, ident, note, today } = current || {};
+    const { ident, note, today } = current || {};
+    // browser and extension pages hold no notes
+    const tab = current?.tab && /^(https?|file):/.test(current.tab.url || '') ? current.tab : null;
     $('#empty').hidden = !!tab;
+    $('#empty').textContent = current?.tab ? 'Nothing to note on this page.' : 'No page here.';
     $('#compose').hidden = !tab;
+    $('#insights').hidden = !tab;
+    $('#entries').hidden = !tab;
     $('#page-title').textContent = tab ? (note?.title || tab.title || tab.url) : APP_NAME;
     $('#page-url').textContent = tab ? tab.url.replace(/^https?:\/\//, '') : '';
     const fav = $('#fav');

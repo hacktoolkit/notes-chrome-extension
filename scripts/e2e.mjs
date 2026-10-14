@@ -257,6 +257,11 @@ try {
 
     // side panel: same view, follows the active tab, setting flips the icon behaviour
     check('popup offers the sidebar', await popup.eval(`!!document.querySelector('#open-panel')`));
+    // on a browser page the view says there is nothing to note
+    await popup.eval(`chrome.tabs.create({ url: 'chrome://version/', active: true })`);
+    await sleep(800);
+    const emptyState = await popup.eval(`(async () => { const r = await new Promise((res) => chrome.runtime.sendMessage({ type: 'current', args: {} }, res)); return r.result.tab ? r.result.tab.url : 'none'; })()`);
+    check('browser pages are reported but not notable', /^chrome:/.test(emptyState), emptyState);
     // the panel lives in one window and follows that window's active tab
     await popup.eval(`chrome.tabs.create({ windowId: ${liTab.windowId}, url: 'chrome-extension://${extId}/src/panel.html', active: false })`);
     const panelT = await waitFor((t) => t.url.endsWith('/src/panel.html'), 'panel');
