@@ -35,7 +35,8 @@ async function tabFor(args) {
     if (args.tabId) {
         try { return await chrome.tabs.get(args.tabId); } catch (e) { /* gone */ }
     }
-    const [t] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    // a side panel belongs to one window: follow that window's active tab
+    const [t] = await chrome.tabs.query(args.windowId ? { active: true, windowId: args.windowId } : { active: true, lastFocusedWindow: true });
     return t || null;
 }
 
@@ -302,6 +303,7 @@ async function handle({ type, args = {} } = {}) {
         }
         case 'settingsChanged':
             scheduleBadgeForAll();
+            await applyPanelBehavior();
             return true;
         default:
             throw new Error(`Unknown message type ${type}`);
@@ -435,19 +437,39 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         }
     } catch (e) { console.error(e); }
 });
+// When the icon opens the sidebar, the click is the moment we may read the
+// page: capture it so the panel has something to show.
+chrome.action.onClicked.addListener(async (tab) => {
+    try {
+        const { settings } = await loadSettings();
+        if (settings.openInSidePanel && tab?.url && /^https?:/.test(tab.url)) await handle({ type: 'current', args: { tabId: tab.id } });
+    } catch (e) { /* ignore */ }
+});
 chrome.commands.onCommand.addListener(async (command, tab) => {
     if (command === 'snoozeTab') {
         try { await handle({ type: 'snoozeTab', args: { tabId: tab?.id, preset: 'tomorrow' } }); } catch (e) { console.error(e); }
     }
 });
 
+// ----- side panel --------------------
+
+// With the setting on, the toolbar icon opens the sidebar instead of the
+// popup. The click still grants activeTab for that page, so captures work.
+async function applyPanelBehavior() {
+    try {
+        const { settings } = await loadSettings();
+        await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: !!settings.openInSidePanel });
+    } catch (e) { /* older browsers */ }
+}
+
 // ----- lifecycle --------------------
 
 chrome.runtime.onInstalled.addListener(async (details) => {
     await rebuildMenus();
     await rearmReminders();
+    await applyPanelBehavior();
     scheduleBadgeForAll();
     if (details.reason === 'install') chrome.runtime.openOptionsPage();
 });
-chrome.runtime.onStartup.addListener(() => { rebuildMenus(); rearmReminders(); scheduleBadgeForAll(); });
+chrome.runtime.onStartup.addListener(() => { rebuildMenus(); rearmReminders(); applyPanelBehavior(); scheduleBadgeForAll(); });
 scheduleBadgeForAll();

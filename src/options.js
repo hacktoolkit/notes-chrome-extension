@@ -107,7 +107,7 @@ async function reconnectVault() {
 
 // ----- settings --------------------
 
-const BOOLS = ['showBadge', 'openTabOnReminder', 'snapshotOnSave', 'writeToVault'];
+const BOOLS = ['openInSidePanel', 'showBadge', 'openTabOnReminder', 'snapshotOnSave', 'writeToVault'];
 
 function renderSettings() {
     BOOLS.forEach((k) => { $(`#${k}`).checked = !!settings[k]; });

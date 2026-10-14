@@ -255,6 +255,32 @@ try {
     const rendered = await popup.eval(`document.querySelector('#entry').value + '|' + document.querySelectorAll('#entries .entry').length`);
     check('popup shows today\'s entry in the editor for the active page', rendered === 'Reviewed. Waiting on CI.|0', rendered);
 
+    // side panel: same view, follows the active tab, setting flips the icon behaviour
+    check('popup offers the sidebar', await popup.eval(`!!document.querySelector('#open-panel')`));
+    // the panel lives in one window and follows that window's active tab
+    await popup.eval(`chrome.tabs.create({ windowId: ${liTab.windowId}, url: 'chrome-extension://${extId}/src/panel.html', active: false })`);
+    const panelT = await waitFor((t) => t.url.endsWith('/src/panel.html'), 'panel');
+    const panel = await CDP.connect(panelT.webSocketDebuggerUrl);
+    await sleep(1200);
+    await popup.eval(`chrome.tabs.update(${liTab.id}, { active: true })`);
+    await sleep(900);
+    const panelTitle2 = await panel.eval(`document.querySelector('#page-title').textContent`);
+    const prMoved = await popup.eval(`chrome.tabs.move(${pr.id}, { windowId: ${liTab.windowId}, index: -1 }).then(() => chrome.tabs.update(${pr.id}, { active: true }))`);
+    await sleep(900);
+    const panelTitle1 = await panel.eval(`document.querySelector('#page-title').textContent`);
+    await popup.eval(`chrome.tabs.update(${liTab.id}, { active: true })`);
+    await sleep(900);
+    check('side panel follows the active tab', /github/.test(panelTitle1) && /LinkedIn|linkedin/i.test(panelTitle2), `${panelTitle1} -> ${panelTitle2}`);
+    const panelEditor = await panel.eval(`document.querySelector('#entry').value`);
+    check('side panel shows today\'s entry for the active tab', panelEditor === 'Screening for the CSE role.', panelEditor);
+    await popup.eval(`chrome.storage.sync.set({ settings: { openInSidePanel: true } })`);
+    await send({ type: 'settingsChanged' });
+    await sleep(300);
+    const behaviour = await popup.eval(`chrome.sidePanel.getPanelBehavior().then((b) => b.openPanelOnActionClick)`);
+    check('setting makes the icon open the sidebar', behaviour === true, String(behaviour));
+    await popup.eval(`chrome.storage.sync.set({ settings: { openInSidePanel: false } })`);
+    await send({ type: 'settingsChanged' });
+
     // options page lists notes
     await browser.send('Target.createTarget', { url: `chrome-extension://${extId}/src/options.html` });
     const optT = await waitFor((t) => t.url.endsWith('/src/options.html'), 'options');

@@ -9,6 +9,7 @@ export const DEFAULTS = {
     openTabOnReminder: true,
     snapshotOnSave: true,
     writeToVault: true,
+    openInSidePanel: false,
     normalization: { ...DEFAULT_NORMALIZATION },
     rules: DEFAULT_RULES.map((r) => ({ ...r, enabled: true }))
 };

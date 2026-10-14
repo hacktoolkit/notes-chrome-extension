@@ -13,8 +13,9 @@
         "default_title": "Page Notes"
     },
     "options_ui": { "page": "src/options.html", "open_in_tab": true },
+    "side_panel": { "default_path": "src/panel.html" },
     "background": { "service_worker": "src/background.js", "type": "module" },
-    "permissions": ["tabs", "storage", "unlimitedStorage", "alarms", "notifications", "contextMenus", "activeTab", "scripting"],
+    "permissions": ["tabs", "storage", "unlimitedStorage", "alarms", "notifications", "contextMenus", "activeTab", "scripting", "sidePanel"],
     "commands": {
         "_execute_action": { "suggested_key": { "default": "Alt+Shift+N" }, "description": "Open Page Notes for this page" },
         "snoozeTab": { "description": "Snooze this tab until tomorrow morning" }

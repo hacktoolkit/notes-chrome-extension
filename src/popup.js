@@ -4,6 +4,7 @@
 const $ = (sel) => document.querySelector(sel);
 import { el, fmt, send } from './lib/ui.js';
 const APP_NAME = chrome.runtime.getManifest().name;
+const PANEL = document.body.classList.contains('panel');
 let current = null; // { tab, ident, note, insights, today }
 let draftTimer = null;
 let lastSentText = null;
@@ -83,6 +84,7 @@ function render({ keepEditor = false } = {}) {
     rule.textContent = ident?.rule || '';
     rule.title = ident ? `This note follows the page: ${ident.key}` : '';
     $('#open-detail').hidden = !note;
+    if (PANEL) $('#capture-hint').hidden = !tab || !!(note && note.snapshots && note.snapshots.length) || !/^https?:/.test(tab.url || '');
 
     // the editor holds today's entry
     const editor = $('#entry');
@@ -118,7 +120,8 @@ function render({ keepEditor = false } = {}) {
 
 async function refresh(opts) {
     try {
-        current = await send('current', { tabId: current?.tab?.id });
+        // the popup is bound to the tab it opened on; the panel follows the active tab
+        current = await send('current', PANEL ? { windowId: (await chrome.windows.getCurrent()).id } : { tabId: current?.tab?.id });
     } catch (e) {
         current = null;
         toast(e.message, true);
@@ -214,7 +217,27 @@ function init() {
     $('#open-all').addEventListener('click', (e) => { e.preventDefault(); chrome.tabs.create({ url: chrome.runtime.getURL('src/options.html#notes') }); });
     $('#open-options').addEventListener('click', (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); });
     $('#open-detail').addEventListener('click', (e) => { e.preventDefault(); openDetail(); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { flushDraft().then(() => window.close()); } });
+    if (!PANEL) {
+        $('#open-panel').addEventListener('click', async (e) => {
+            e.preventDefault();
+            await flushDraft();
+            try {
+                const w = await chrome.windows.getLastFocused();
+                await chrome.sidePanel.open({ windowId: w.id });
+                window.close();
+            } catch (err) { toast(err.message, true); }
+        });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { flushDraft().then(() => window.close()); } });
+    } else {
+        // follow the active tab: save what is being typed, then show the new page
+        let switchTimer = null;
+        const follow = () => { clearTimeout(switchTimer); switchTimer = setTimeout(async () => { await flushDraft(); await refresh(); }, 150); };
+        chrome.tabs.onActivated.addListener(async ({ windowId }) => { if (windowId === (await chrome.windows.getCurrent()).id) follow(); });
+        chrome.tabs.onUpdated.addListener((tabId, info, tab) => { if (tab.active && (info.url || info.status === 'complete')) follow(); });
+        chrome.windows.onFocusChanged.addListener((id) => { if (id !== chrome.windows.WINDOW_ID_NONE) follow(); });
+        // a note saved from the popup or context menu shows up here too
+        chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && Object.keys(changes).some((k) => k.startsWith('note:'))) refresh({ keepEditor: document.activeElement === editor }); });
+    }
     refresh().then(() => { editor.focus(); editor.setSelectionRange(editor.value.length, editor.value.length); });
 }
 init();

@@ -66,3 +66,9 @@ main { padding: 12px 12px 6px; max-height: 520px; overflow-y: auto; display: fle
 .foot .spacer { flex: 1; }
 .toast { position: absolute; left: 12px; right: 12px; bottom: 46px; padding: 9px 12px; border-radius: 10px; background: var(--text); color: var(--bg); box-shadow: var(--shadow-l); z-index: 30; font-weight: 500; font-size: var(--fs-s); }
 .toast.error { background: var(--danger); color: #fff; }
+
+/* side panel: fluid width, full height, editor pinned at the top */
+body.panel { width: auto; min-width: 280px; height: 100vh; display: flex; flex-direction: column; }
+body.panel main { flex: 1; max-height: none; }
+body.panel .foot { flex-wrap: wrap; row-gap: 4px; }
+body.panel #capture-hint { flex-basis: 100%; font-size: var(--fs-xs); }

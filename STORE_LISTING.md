@@ -28,6 +28,7 @@ Paste-ready copy for the dashboard. Plain-text copies are in `promo/store/`. The
 | `alarms` | Fire reminders and reopen snoozed tabs at the time the user chose. |
 | `notifications` | Show the reminder when it fires. |
 | `contextMenus` | "Add selection to this page's note" and "Snooze this tab" in the right-click menu. |
+| `sidePanel` | Show the note beside the page in the browser's side panel, following the active tab. |
 
 **Remote code:** No.
 

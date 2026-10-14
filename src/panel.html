@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Page Notes</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="popup.css" />
+</head>
+<body class="panel">
+    <header class="head">
+        <img id="fav" class="fav" src="../img/icon32.png" alt="" width="22" height="22" />
+        <div class="head-text">
+            <h1 id="page-title"></h1>
+            <div id="page-url" class="muted"></div>
+        </div>
+        <span id="rule" class="pill" hidden></span>
+    </header>
+
+    <main>
+        <div id="empty" class="empty" hidden>This page can't hold a note.</div>
+        <section id="compose">
+            <div class="editor-head"><span id="today-label" class="muted"></span><span id="status" class="status" aria-live="polite"></span></div>
+            <textarea id="entry" rows="3" placeholder="Type a note for this page. It saves as you type."></textarea>
+            <div class="chips" id="chips">
+                <span class="chip-label">Remind</span>
+                <button class="chip" data-preset="1h">1h</button>
+                <button class="chip" data-preset="tonight">tonight</button>
+                <button class="chip" data-preset="tomorrow">tomorrow</button>
+                <button class="chip" data-preset="nextweek">next wk</button>
+                <label class="chip pick" title="Pick a time">pick<input type="datetime-local" id="remind-at" /></label>
+                <button class="chip snooze" id="snooze" title="Close this tab now and reopen it tomorrow at 9:00">snooze tab</button>
+            </div>
+            <div id="reminder" class="reminder" hidden></div>
+        </section>
+        <div id="insights" class="insights" hidden></div>
+        <ol id="entries" class="entries"></ol>
+    </main>
+
+    <footer class="foot">
+        <a href="#" id="open-all">All notes</a>
+        <a href="#" id="open-detail" hidden>Details</a>
+        <span id="capture-hint" class="muted" hidden>Click the toolbar icon on this page to capture it.</span>
+        <span class="spacer"></span>
+        <a href="#" id="open-options">Settings</a>
+    </footer>
+    <div id="toast" class="toast" hidden></div>
+    <script type="module" src="popup.js"></script>
+</body>
+</html>
