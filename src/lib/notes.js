@@ -23,6 +23,22 @@ export function identify(url, compiledRules, normalization) {
     return { key, rule, id: noteId(key) };
 }
 
+// Page titles carry noise that is not the page: "(3)" unread counters at the
+// front (LinkedIn, Gmail, Slack, X) and the site's own name at the end
+// ("Jane Doe | LinkedIn", "Fix bug · Pull Request #4 · org/repo", "Clip - YouTube").
+export function cleanTitle(title, { siteName = '', host = '' } = {}) {
+    let t = (title || '').replace(/\s+/g, ' ').trim();
+    // leading counters: "(3) ", "(12+) ", "[2] ", "• "
+    t = t.replace(/^(?:[\(\[]\d+\+?[\)\]]\s*|[•·]\s*)+/, '');
+    // trailing site names: " | LinkedIn", " - YouTube", " · GitHub", " — Slack"
+    const brand = (host || '').replace(/^www\./, '').split('.').filter((p) => !['com', 'org', 'net', 'io', 'co', 'uk', 'au'].includes(p)).pop() || '';
+    const names = [siteName, brand].filter(Boolean).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    for (const n of names) {
+        t = t.replace(new RegExp(`\\s*[|\\-–—·:]\\s*${n}\\s*$`, 'i'), '');
+    }
+    return t || (title || '').trim();
+}
+
 export function newNote({ url, title, key, rule, now = new Date() }) {
     const iso = now.toISOString();
     return {
@@ -31,7 +47,7 @@ export function newNote({ url, title, key, rule, now = new Date() }) {
         key,
         rule: rule || null,
         url,
-        title: title || url,
+        title: cleanTitle(title, { host: hostOf(url) || '' }) || url,
         host: hostOf(url) || '',
         tags: [],
         created: iso,
@@ -118,7 +134,8 @@ export function addSnapshot(note, capture, now = new Date()) {
         while (history.length > SNAPSHOT_LIMIT) history.splice(1, 1); // keep the first ever and the recent ones
     }
     const newest = history[history.length - 1];
-    return { ...note, snapshots: history, snapshot: { at: newest.at, text: newest.text, title: newest.title, description: newest.description } };
+    const title = cleanTitle(newest.title, { siteName: newest.meta?.siteName, host: note.host }) || note.title;
+    return { ...note, title, snapshots: history, snapshot: { at: newest.at, text: newest.text, title: newest.title, description: newest.description } };
 }
 
 export function setSnapshot(note, snapshot, now = new Date()) {
@@ -201,16 +218,22 @@ export function fromMarkdown(text) {
         const t = chunk.trim();
         if (t) entries.push({ at, text: t });
     };
-    const preamble = body.slice(0, (re.exec(body) || { index: body.length }).index);
+    const first = re.exec(body);
+    const preamble = body.slice(0, (first || { index: body.length }).index);
     re.lastIndex = 0;
-    pushEntry(meta.created || new Date().toISOString(), preamble);
+    // an undated preamble belongs before the first dated section, not "now"
+    const preambleAt = meta.created || (first ? new Date(`${first[1]}T${first[2] || '00:00'}:00`).toISOString() : new Date().toISOString());
+    pushEntry(preambleAt, preamble);
     while ((match = re.exec(body))) {
         if (last) pushEntry(last.at, body.slice(last.end, match.index));
         const at = new Date(`${match[1]}T${match[2] || '00:00'}:00`).toISOString();
         last = { at, end: match.index + match[0].length };
     }
     if (last) pushEntry(last.at, body.slice(last.end));
-    entries.sort((a, b) => a.at.localeCompare(b.at));
+    // stable sort: equal timestamps keep file order
+    entries.forEach((e, i) => { e._i = i; });
+    entries.sort((a, b) => a.at.localeCompare(b.at) || a._i - b._i);
+    entries.forEach((e) => { delete e._i; });
     return {
         version: NOTE_VERSION,
         id: noteId(meta.key),

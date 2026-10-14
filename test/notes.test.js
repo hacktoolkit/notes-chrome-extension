@@ -37,7 +37,7 @@ test('markdown round-trips with frontmatter and dated sections', () => {
     n = addEntry(n, '> quoted line\nmet at the meetup', new Date('2026-10-18T22:30:00Z'));
     n = { ...n, tags: ['people', 'sales'], remind: '2026-11-01T09:00:00.000Z', snapshot: { at: n.updated, text: 'Jane Doe - Head of Things at Acme "quoted"' } };
     const md = toMarkdown(n);
-    assert.match(md, /^---\ntitle: "Jane Doe \| LinkedIn"\nurl: https:\/\/www\.linkedin\.com\/in\/jane\/\nkey: linkedin:in\/jane\nrule: "LinkedIn profile"\n/);
+    assert.match(md, /^---\ntitle: "Jane Doe"\nurl: https:\/\/www\.linkedin\.com\/in\/jane\/\nkey: linkedin:in\/jane\nrule: "LinkedIn profile"\n/);
     assert.match(md, /tags: \[people, sales\]/);
     assert.match(md, /excerpt: "Jane Doe - Head of Things at Acme \\"quoted\\""/);
     // newest entry first in the file
@@ -51,7 +51,7 @@ test('markdown round-trips with frontmatter and dated sections', () => {
     assert.deepEqual(back.entries.map((e) => e.text), n.entries.map((e) => e.text));
     // headings are local wall-clock; the parsed timestamp must match to the minute
     assert.equal(Math.abs(new Date(back.entries[0].at) - new Date(n.entries[0].at)) < 60000, true);
-    assert.equal(fileNameFor(n), `jane-doe-linkedin-${n.id}.md`);
+    assert.equal(fileNameFor(n), `jane-doe-${n.id}.md`);
 });
 
 test('fromMarkdown accepts hand-written notes and rejects junk', () => {
@@ -152,4 +152,26 @@ test('setToday creates, updates and removes the day\'s entry without duplicating
     n = setToday(n, '   ', later);
     assert.equal(n.entries.length, 1, 'emptying removes the day');
     assert.equal(setToday(n, '', later), n);
+});
+
+test('cleanTitle strips unread counters and trailing site names', async () => {
+    const { cleanTitle } = await import('../src/lib/notes.js');
+    assert.equal(cleanTitle('(3) Jane Doe | LinkedIn', { host: 'www.linkedin.com' }), 'Jane Doe');
+    assert.equal(cleanTitle('(12+) Jane Doe | LinkedIn', { siteName: 'LinkedIn' }), 'Jane Doe');
+    assert.equal(cleanTitle('[2] Inbox - Gmail', { host: 'mail.google.com', siteName: 'Gmail' }), 'Inbox');
+    assert.equal(cleanTitle('Fix consolidate target · Pull Request #482 · dataro/app', { host: 'github.com' }), 'Fix consolidate target · Pull Request #482 · dataro/app');
+    assert.equal(cleanTitle('Never Gonna Give You Up - YouTube', { host: 'www.youtube.com' }), 'Never Gonna Give You Up');
+    assert.equal(cleanTitle('  Spaced   out  '), 'Spaced out');
+    assert.equal(cleanTitle('(1) ', { host: 'x.com' }), '(1)');
+    assert.equal(cleanTitle('', { host: 'x.com' }), '');
+    assert.equal(cleanTitle('LinkedIn', { host: 'www.linkedin.com' }), 'LinkedIn');
+});
+
+test('a capture with a new title renames the note; newNote cleans its title', async () => {
+    const { addSnapshot } = await import('../src/lib/notes.js');
+    let n = newNote({ url: 'https://www.linkedin.com/in/jane/', title: '(4) Jane Doe | LinkedIn', key: 'linkedin:in/jane' });
+    assert.equal(n.title, 'Jane Doe');
+    n = addSnapshot(n, { title: '(9) Jane D. | LinkedIn', text: 'v1', meta: { siteName: 'LinkedIn' } }, new Date('2026-01-01T00:00:00Z'));
+    assert.equal(n.title, 'Jane D.');
+    assert.equal(n.snapshots[0].title, '(9) Jane D. | LinkedIn', 'the capture keeps the raw title');
 });
