@@ -62,9 +62,20 @@ async function importFiles(fileList) {
 
 // ----- vault --------------------
 
+const FS_ACCESS = typeof window.showDirectoryPicker === 'function';
+
 async function renderVault() {
     const handle = await loadVaultHandle();
     const status = $('#vault-status');
+    if (!FS_ACCESS) {
+        $('#vault-connect').disabled = true;
+        $('#vault-unsupported').hidden = false;
+        $('#vault-disconnect').hidden = true;
+        $('#vault-write').hidden = true;
+        $('#vault-reconnect').hidden = true;
+        status.textContent = '';
+        return;
+    }
     $('#vault-connect').hidden = !!handle;
     $('#vault-disconnect').hidden = !handle;
     $('#vault-write').hidden = !handle;
@@ -153,6 +164,7 @@ async function init() {
     $('#import').addEventListener('click', () => $('#import-file').click());
     $('#import-file').addEventListener('change', (e) => importFiles(e.target.files).catch((err) => { $('#backup-status').textContent = err.message; }).finally(() => { e.target.value = ''; }));
     $('#vault-connect').addEventListener('click', connectVault);
+    $('#copy-flag').addEventListener('click', () => { navigator.clipboard.writeText('brave://flags/#file-system-access-api'); $('#copy-flag').textContent = 'Copied'; });
     $('#vault-reconnect').addEventListener('click', reconnectVault);
     $('#vault-write').addEventListener('click', async () => { const r = await send('writeAllToVault'); $('#vault-status').textContent = r.status === 'written' ? `Wrote ${r.written} notes.` : `Could not write (${r.status}).`; });
     $('#vault-disconnect').addEventListener('click', async () => { await clearVaultHandle(); await renderVault(); });

@@ -34,3 +34,7 @@ input[type="search"], input[type="url"], textarea { width: 100%; }
 .list-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .list-head input[type="search"] { flex: 1; min-width: 240px; width: auto; }
 .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.notice { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; padding: 12px 14px; border-radius: var(--radius); background: var(--warn-soft); font-size: 13px; }
+.notice b { font-weight: 600; }
+.notice code { background: var(--panel); padding: 1px 6px; border-radius: 4px; }
+.notice button { align-self: flex-start; padding: 2px 8px; font-size: 12px; }

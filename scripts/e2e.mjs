@@ -260,6 +260,8 @@ try {
     const optT = await waitFor((t) => t.url.endsWith('/src/options.html'), 'options');
     const opt = await CDP.connect(optT.webSocketDebuggerUrl);
     await sleep(1200);
+    const vaultState = await opt.eval(`typeof window.showDirectoryPicker === 'function' ? 'supported:' + document.querySelector('#vault-unsupported').hidden : 'unsupported:' + document.querySelector('#vault-unsupported').hidden + ':' + document.querySelector('#vault-connect').disabled`);
+    check('vault section explains itself when folder access is unavailable', vaultState === 'supported:true' || vaultState === 'unsupported:false:true', vaultState);
     const optRows = await opt.eval(`document.querySelectorAll('#note-list .note').length`);
     check('options page lists notes with entries', optRows === 4, `${optRows} rows`);
 } catch (e) {

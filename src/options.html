@@ -46,6 +46,11 @@
                 </div>
                 <h3>Obsidian vault</h3>
                 <p class="muted">Connect a folder inside your vault and every note is written there as a Markdown file on save. The browser asks you to re-allow access once per session.</p>
+                <div id="vault-unsupported" class="notice" hidden>
+                    <b>This browser has folder access turned off.</b>
+                    <span>Brave disables the File System Access API by default. To turn it on, open <code>brave://flags/#file-system-access-api</code>, set it to Enabled, and relaunch. Chrome and Edge support it out of the box. Export and import work everywhere.</span>
+                    <button id="copy-flag" class="ghost">Copy flag address</button>
+                </div>
                 <div class="toolbar">
                     <button id="vault-connect">Connect vault folder…</button>
                     <button id="vault-reconnect" hidden>Re-allow access</button>
