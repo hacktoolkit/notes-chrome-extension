@@ -23,20 +23,13 @@ export function identify(url, compiledRules, normalization) {
     return { key, rule, id: noteId(key) };
 }
 
-// Page titles carry noise that is not the page: "(3)" unread counters at the
-// front (LinkedIn, Gmail, Slack, X) and the site's own name at the end
-// ("Jane Doe | LinkedIn", "Fix bug · Pull Request #4 · org/repo", "Clip - YouTube").
-export function cleanTitle(title, { siteName = '', host = '' } = {}) {
-    let t = (title || '').replace(/\s+/g, ' ').trim();
-    // leading counters: "(3) ", "(12+) ", "[2] ", "• "
-    t = t.replace(/^(?:[\(\[]\d+\+?[\)\]]\s*|[•·]\s*)+/, '');
-    // trailing site names: " | LinkedIn", " - YouTube", " · GitHub", " — Slack"
-    const brand = (host || '').replace(/^www\./, '').split('.').filter((p) => !['com', 'org', 'net', 'io', 'co', 'uk', 'au'].includes(p)).pop() || '';
-    const names = [siteName, brand].filter(Boolean).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    for (const n of names) {
-        t = t.replace(new RegExp(`\\s*[|\\-–—·:]\\s*${n}\\s*$`, 'i'), '');
-    }
-    return t || (title || '').trim();
+// Page titles carry one thing that is not the page: an unread counter at the
+// front, "(3) Jane Doe | LinkedIn" (LinkedIn, Gmail, Slack, X). The site name
+// at the end is part of what the page is, so it stays.
+export function cleanTitle(title) {
+    const t = (title || '').replace(/\s+/g, ' ').trim();
+    const cleaned = t.replace(/^(?:[\(\[]\d+\+?[\)\]]\s*|[•·]\s*)+/, '');
+    return cleaned || t;
 }
 
 export function newNote({ url, title, key, rule, now = new Date() }) {
@@ -47,7 +40,7 @@ export function newNote({ url, title, key, rule, now = new Date() }) {
         key,
         rule: rule || null,
         url,
-        title: cleanTitle(title, { host: hostOf(url) || '' }) || url,
+        title: cleanTitle(title) || url,
         host: hostOf(url) || '',
         tags: [],
         created: iso,
@@ -134,7 +127,7 @@ export function addSnapshot(note, capture, now = new Date()) {
         while (history.length > SNAPSHOT_LIMIT) history.splice(1, 1); // keep the first ever and the recent ones
     }
     const newest = history[history.length - 1];
-    const title = cleanTitle(newest.title, { siteName: newest.meta?.siteName, host: note.host }) || note.title;
+    const title = cleanTitle(newest.title) || note.title;
     return { ...note, title, snapshots: history, snapshot: { at: newest.at, text: newest.text, title: newest.title, description: newest.description } };
 }
 
