@@ -374,14 +374,14 @@ try {
     const panelT = await waitFor((t) => t.url.endsWith('/src/panel.html'), 'panel');
     const panel = await CDP.connect(panelT.webSocketDebuggerUrl);
     await sleep(1200);
+    // the panel refreshes asynchronously after a tab switch; poll rather than guess a delay
+    const panelTitleIs = async (re) => { for (let i = 0; i < 40; i++) { const t = await panel.eval(`document.querySelector('#page-title').textContent`); if (re.test(t)) return t; await sleep(150); } return panel.eval(`document.querySelector('#page-title').textContent`); };
     await popup.eval(`chrome.tabs.update(${liTab.id}, { active: true })`);
-    await sleep(900);
-    const panelTitle2 = await panel.eval(`document.querySelector('#page-title').textContent`);
-    const prMoved = await popup.eval(`chrome.tabs.move(${pr.id}, { windowId: ${liTab.windowId}, index: -1 }).then(() => chrome.tabs.update(${pr.id}, { active: true }))`);
-    await sleep(900);
-    const panelTitle1 = await panel.eval(`document.querySelector('#page-title').textContent`);
+    const panelTitle2 = await panelTitleIs(/linkedin/i);
+    await popup.eval(`chrome.tabs.move(${pr.id}, { windowId: ${liTab.windowId}, index: -1 }).then(() => chrome.tabs.update(${pr.id}, { active: true }))`);
+    const panelTitle1 = await panelTitleIs(/github/);
     await popup.eval(`chrome.tabs.update(${liTab.id}, { active: true })`);
-    await sleep(900);
+    await panelTitleIs(/linkedin/i);
     check('side panel follows the active tab', /github/.test(panelTitle1) && /LinkedIn|linkedin/i.test(panelTitle2), `${panelTitle1} -> ${panelTitle2}`);
     const panelEditor = await panel.eval(`document.querySelector('#entry').value`);
     check('side panel shows today\'s entry for the active tab', panelEditor === 'Screening for the CSE role.', panelEditor);
