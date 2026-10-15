@@ -23,12 +23,13 @@ Paste-ready copy for the dashboard. Plain-text copies are in `promo/store/`. The
 | Permission | Justification |
 | --- | --- |
 | `tabs` | Read the current tab's URL and title to attach a note to the page, show a count on the toolbar icon, and reopen a page when a reminder fires or a snoozed tab is due. |
-| `activeTab` and `scripting` | When the user saves a note, opens the popup on a noted page, or clicks "Capture page", read that page's title, metadata and visible text so the note keeps a local record of what the user saw. Runs only on the user's click, on that tab, never in the background. |
+| `activeTab` and `scripting` | When the user opens the popup or adds a sticky on a page, read that page's title, metadata and visible text so the note keeps a local record of what the user saw, and show the sticky layer (pins and comments) on that page. Runs only on the user's click, on that tab, never in the background. |
 | `storage` and `unlimitedStorage` | Notes and page captures are stored locally in the browser profile; captures of long pages can exceed the default quota. Settings sync with the profile. |
 | `alarms` | Fire reminders and reopen snoozed tabs at the time the user chose. |
 | `notifications` | Show the reminder when it fires. |
 | `contextMenus` | "Add selection to this page's note" and "Snooze this tab" in the right-click menu. |
 | `sidePanel` | Show the note beside the page in the browser's side panel, following the active tab. |
+| Optional host permissions `https://*/*`, `http://*/*` | Only when the user ticks "Always show stickies on this site": requested for that one origin so the sticky pins can appear on every visit there without a click. Never requested otherwise. |
 
 **Remote code:** No.
 

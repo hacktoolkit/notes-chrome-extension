@@ -174,3 +174,35 @@ test('a capture with a new title renames the note; newNote cleans its title', as
     assert.equal(n.title, 'Jane D. | LinkedIn');
     assert.equal(n.snapshots[0].title, '(9) Jane D. | LinkedIn', 'the capture keeps the raw title');
 });
+
+test('stickies: add, update, remove, feedback, and Markdown round-trip', async () => {
+    const { addSticky, updateSticky, removeSticky, feedbackMarkdown } = await import('../src/lib/notes.js');
+    let n = newNote({ url: 'https://site.test/pricing', title: 'Pricing – Site', key: 'https://site.test/pricing', now: new Date('2026-10-15T01:00:00Z') });
+    const anchor = { css: '#pricing > p:nth-of-type(1)', path: 'body > main:nth-of-type(1) > p:nth-of-type(1)', quote: { exact: 'Plans start at $9 per month', prefix: 'Pricing ', suffix: ', billed' }, tag: 'p', label: '' };
+    n = addSticky(n, { anchor, text: 'Say "from $9/mo" and lead with annual savings.' }, new Date('2026-10-15T01:00:00Z'));
+    n = addSticky(n, { anchor: { ...anchor, css: '#pricing > h2:nth-of-type(1)', quote: { exact: 'Pricing', prefix: '', suffix: '' }, tag: 'h2' }, text: 'Too small on mobile.' });
+    assert.equal(n.stickies.length, 2);
+    const id = n.stickies[0].id;
+    n = updateSticky(n, id, { text: 'Say "from $9/mo".' });
+    assert.equal(n.stickies[0].text, 'Say "from $9/mo".');
+    assert.equal(updateSticky(n, id, { text: 'Say "from $9/mo".' }), n, 'no change is a no-op');
+    const fb = feedbackMarkdown(n);
+    assert.match(fb, /^Feedback on Pricing – Site\nhttps:\/\/site\.test\/pricing\n\n1\. "Plans start at \$9 per month"\n   Say "from \$9\/mo"\.\n2\. "Pricing"\n   Too small on mobile\.$/);
+    const md = toMarkdown(n);
+    assert.match(md, /## Stickies\n\n1\. \*\*"Plans start at \$9 per month"\*\* — Say "from \$9\/mo"\.\n   <!-- sticky \{/);
+    const back = fromMarkdown(md);
+    assert.equal(back.stickies.length, 2);
+    assert.equal(back.stickies[0].id, id);
+    assert.deepEqual(back.stickies[0].anchor, anchor);
+    assert.equal(back.stickies[0].text, 'Say "from $9/mo".');
+    assert.equal(back.entries.length, 0, 'the stickies section is not an entry');
+    // a hand-written stickies item without the hidden anchor still imports by quote
+    const hand = `---\ntitle: T\nurl: https://x.test/\nkey: https://x.test/\n---\nnote body\n\n## Stickies\n\n1. **"Some heading"** — tighten this\n`;
+    const h = fromMarkdown(hand);
+    assert.equal(h.entries.length, 1);
+    assert.equal(h.stickies[0].anchor.quote.exact, 'Some heading');
+    assert.equal(h.stickies[0].text, 'tighten this');
+    n = removeSticky(n, id);
+    assert.equal(n.stickies.length, 1);
+    assert.equal(removeSticky(n, 'nope'), n);
+});

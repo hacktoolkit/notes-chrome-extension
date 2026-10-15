@@ -14,6 +14,8 @@
     },
     "options_ui": { "page": "src/options.html", "open_in_tab": true },
     "side_panel": { "default_path": "src/panel.html" },
+    "web_accessible_resources": [{ "resources": ["src/content/layer.js", "src/lib/anchor.js"], "matches": ["<all_urls>"] }],
+    "optional_host_permissions": ["https://*/*", "http://*/*"],
     "background": { "service_worker": "src/background.js", "type": "module" },
     "permissions": ["tabs", "storage", "unlimitedStorage", "alarms", "notifications", "contextMenus", "activeTab", "scripting", "sidePanel"],
     "commands": {

@@ -32,6 +32,16 @@
             </div>
             <div id="reminder" class="reminder" hidden></div>
         </section>
+        <section id="stickies" class="stickies" hidden>
+            <div class="stickies-head">
+                <span class="eyebrow">On the page</span>
+                <span class="spacer"></span>
+                <button id="copy-feedback" class="ghost tiny" title="Copy a numbered list of your stickies with the quoted context" hidden>Copy feedback</button>
+                <button id="add-sticky" class="tiny primary" title="Pick a part of the page and comment on it">+ Sticky</button>
+            </div>
+            <ol id="sticky-list"></ol>
+            <label id="always-show" class="always" hidden><input type="checkbox" id="always-show-toggle" /> Always show stickies on <span id="always-origin"></span></label>
+        </section>
         <div id="insights" class="insights" hidden></div>
         <ol id="entries" class="entries"></ol>
     </main>

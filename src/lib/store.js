@@ -36,7 +36,7 @@ export function deleteNote(id) {
 
 async function putNoteNow(note) {
     const index = await getIndex();
-    if (note.entries.length === 0 && !note.remind && !(note.snapshots && note.snapshots.length)) {
+    if (note.entries.length === 0 && !note.remind && !(note.snapshots && note.snapshots.length) && !(note.stickies && note.stickies.length)) {
         // a note with no entries, reminder or captures is a deleted note
         delete index[note.id];
         await chrome.storage.local.remove(noteKey(note.id));

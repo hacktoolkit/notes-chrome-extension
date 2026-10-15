@@ -67,6 +67,37 @@ function renderInsights(ins) {
     box.hidden = rows.length === 0;
 }
 
+function renderStickies() {
+    const { tab, note, alwaysShow } = current || {};
+    const box = $('#stickies');
+    const web = tab && /^https?:/.test(tab.url || '');
+    box.hidden = !web;
+    if (!web) return;
+    const list = $('#sticky-list');
+    list.innerHTML = '';
+    const stickies = note?.stickies || [];
+    $('#copy-feedback').hidden = stickies.length === 0;
+    if (stickies.length === 0) {
+        list.append(el('li', { class: 'empty-row', text: 'Pin a comment to any part of this page.' }));
+    }
+    stickies.forEach((st, i) => {
+        const quote = st.anchor?.quote?.exact ? `“${st.anchor.quote.exact.slice(0, 70)}${st.anchor.quote.exact.length > 70 ? '…' : ''}”` : (st.anchor?.label || st.anchor?.tag || 'element');
+        const li = el('li', { class: st.found === false ? 'orphan' : '', title: st.found === false ? 'Could not find this spot on the page as it is now' : 'Show on the page' }, [
+            el('span', { class: 'n', text: String(i + 1) }),
+            el('span', {}, [el('div', { class: 'q', text: quote }), el('div', { class: `t${st.text ? '' : ' empty'}`, text: st.text || 'No comment yet' })]),
+            el('button', { class: 'x', text: '✕', title: 'Remove', onclick: async (e) => { e.stopPropagation(); await send('stickyRemove', { url: tab.url, id: st.id }); await refresh({ keepEditor: true }); } })
+        ]);
+        li.addEventListener('click', async () => { try { await send('annotate', { tabId: tab.id, scrollTo: st.id }); if (!PANEL) window.close(); } catch (e) { toast(e.message, true); } });
+        list.append(li);
+    });
+    const always = $('#always-show');
+    always.hidden = !alwaysShow?.origin || stickies.length === 0;
+    if (alwaysShow?.origin) {
+        $('#always-origin').textContent = alwaysShow.origin.replace(/^https?:\/\//, '');
+        $('#always-show-toggle').checked = !!alwaysShow.enabled;
+    }
+}
+
 function openDetail() {
     if (current?.note) chrome.tabs.create({ url: chrome.runtime.getURL(`src/note.html?id=${current.note.id}`) });
 }
@@ -107,6 +138,7 @@ function render({ keepEditor = false } = {}) {
     document.querySelectorAll('#chips .chip[data-preset]').forEach((c) => c.classList.toggle('on', false));
 
     renderInsights(current?.insights);
+    renderStickies();
 
     const list = $('#entries');
     list.innerHTML = '';
@@ -219,6 +251,32 @@ function init() {
     document.querySelectorAll('#chips .chip[data-preset]').forEach((b) => b.addEventListener('click', () => setReminder({ preset: b.dataset.preset })));
     $('#remind-at').addEventListener('change', (e) => { if (e.target.value) setReminder({ when: new Date(e.target.value).toISOString() }); });
     $('#snooze').addEventListener('click', snoozeTab);
+    $('#add-sticky').addEventListener('click', async () => {
+        try {
+            await flushDraft();
+            await send('annotate', { tabId: current.tab.id, pick: true });
+            if (!PANEL) window.close();
+        } catch (e) { toast(e.message, true); }
+    });
+    $('#copy-feedback').addEventListener('click', async () => {
+        try {
+            const md = await send('feedback', { id: current.note.id });
+            await navigator.clipboard.writeText(md);
+            toast('Feedback copied');
+        } catch (e) { toast(e.message, true); }
+    });
+    $('#always-show-toggle').addEventListener('change', async (e) => {
+        try {
+            if (e.target.checked) {
+                const origin = new URL(current.tab.url).origin;
+                const ok = await chrome.permissions.request({ origins: [`${origin}/*`] });
+                if (!ok) throw new Error('Permission was not granted.');
+            }
+            const r = await send('alwaysShow', { url: current.tab.url, enable: e.target.checked });
+            e.target.checked = !!r.enabled;
+            toast(r.enabled ? `Stickies will show on ${r.origin.replace(/^https?:\/\//, '')}` : 'Turned off for this site');
+        } catch (err) { e.target.checked = !e.target.checked; toast(err.message, true); }
+    });
     $('#open-all').addEventListener('click', (e) => { e.preventDefault(); chrome.tabs.create({ url: chrome.runtime.getURL('src/options.html#notes') }); });
     $('#open-options').addEventListener('click', (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); });
     $('#open-detail').addEventListener('click', (e) => { e.preventDefault(); openDetail(); });

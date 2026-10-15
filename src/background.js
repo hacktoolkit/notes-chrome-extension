@@ -4,8 +4,8 @@
 import { loadSettings } from './lib/settings.js';
 import { compileRules } from './lib/url.js';
 import {
-    addEntry, addSnapshot, fileNameFor, fromMarkdown, identify, mergeNotes, matchesQuery, newNote,
-    presetTime, removeEntry, setReminder, setToday, toMarkdown, todayIndex, updateEntry
+    addEntry, addSnapshot, addSticky, feedbackMarkdown, fileNameFor, fromMarkdown, identify, mergeNotes, matchesQuery, newNote,
+    presetTime, removeEntry, removeSticky, setReminder, setToday, toMarkdown, todayIndex, updateEntry, updateSticky
 } from './lib/notes.js';
 
 // The popup does not need snapshot bodies; keep its messages small.
@@ -153,7 +153,7 @@ async function handle({ type, args = {} } = {}) {
                     if (next !== note) note = await putNote(next);
                 }
             }
-            return { tab: { id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl || '' }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null, today: note ? todayIndex(note) : -1 };
+            return { tab: { id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl || '' }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null, today: note ? todayIndex(note) : -1, alwaysShow: /^https?:/.test(tab.url) ? await alwaysShowState(tab.url) : null };
         }
         case 'capture': {
             // user asked to keep what this page looks like, with no entry yet
@@ -167,6 +167,75 @@ async function handle({ type, args = {} } = {}) {
             const saved = await persist(next, settings);
             return { note: saved ? stripForPopup(saved) : null, insights: saved ? insightsFor(saved) : null };
         }
+        // ----- stickies: notes attached to elements on the page -----
+        case 'stickies': {
+            const { note } = await noteForUrl(args.url);
+            return note?.stickies || [];
+        }
+        case 'stickyAdd': {
+            const { ident, note, settings } = await noteForUrl(args.url);
+            const base = note || newNote({ url: args.url, title: args.title || args.url, key: ident.key, rule: ident.rule });
+            const next = addSticky(base, { anchor: args.anchor, text: args.text || '' });
+            const saved = await persist(next, settings);
+            notifyLayers(args.url);
+            return saved.stickies[saved.stickies.length - 1];
+        }
+        case 'stickyUpdate': {
+            const { note, settings } = await noteForUrl(args.url);
+            if (!note) throw new Error('Note not found');
+            const next = updateSticky(note, args.id, { text: args.text });
+            if (next !== note) await persist(next, settings);
+            return true;
+        }
+        case 'stickyRemove': {
+            const { note, settings } = await noteForUrl(args.url);
+            if (!note) throw new Error('Note not found');
+            const next = removeSticky(note, args.id);
+            if (next !== note) await persist(next, settings);
+            notifyLayers(args.url);
+            return true;
+        }
+        case 'stickyPlacement': {
+            // the layer reports which stickies it could place, so lists can show orphans
+            const { note } = await noteForUrl(args.url);
+            if (!note) return true;
+            let next = note;
+            for (const p of args.placement || []) next = updateSticky(next, p.id, { found: p.found });
+            if (next !== note) await putNote(next);
+            return true;
+        }
+        case 'feedback': {
+            const note = await getNote(args.id);
+            if (!note) throw new Error('Note not found');
+            return feedbackMarkdown(note);
+        }
+        case 'annotate': {
+            // inject the layer into the tab (activeTab grant from the user's click)
+            // and optionally start pick mode
+            const tab = await tabFor(args);
+            if (!tab?.id || !/^https?:/.test(tab.url || '')) throw new Error('Stickies work on web pages only.');
+            await ensureLayer(tab.id);
+            if (args.pick) await chrome.tabs.sendMessage(tab.id, { type: 'pn:pick' });
+            if (args.scrollTo) await chrome.tabs.sendMessage(tab.id, { type: 'pn:scrollTo', id: args.scrollTo });
+            return true;
+        }
+        case 'alwaysShow': {
+            // per-site opt-in: register the layer to load on that origin
+            const origin = new URL(args.url).origin;
+            if (args.enable) {
+                const granted = await chrome.permissions.contains({ origins: [`${origin}/*`] });
+                if (!granted) throw new Error('Permission was not granted.');
+                await chrome.scripting.registerContentScripts([{ id: `layer:${origin}`, matches: [`${origin}/*`], js: ['src/content/annotate.js'], runAt: 'document_idle' }]).catch(async () => {
+                    await chrome.scripting.updateContentScripts([{ id: `layer:${origin}`, matches: [`${origin}/*`], js: ['src/content/annotate.js'], runAt: 'document_idle' }]);
+                });
+            } else {
+                await chrome.scripting.unregisterContentScripts({ ids: [`layer:${origin}`] }).catch(() => {});
+                await chrome.permissions.remove({ origins: [`${origin}/*`] }).catch(() => {});
+            }
+            return alwaysShowState(args.url);
+        }
+        case 'alwaysShowState':
+            return alwaysShowState(args.url);
         case 'insights': {
             const note = await getNote(args.id);
             return note ? insightsFor(note) : null;
@@ -242,7 +311,7 @@ async function handle({ type, args = {} } = {}) {
         case 'list': {
             const index = await getIndex();
             let rows = Object.values(index);
-            if (!args.includeCaptures) rows = rows.filter((r) => r.entries > 0 || r.remind);
+            if (!args.includeCaptures) rows = rows.filter((r) => r.entries > 0 || r.remind || r.stickies > 0);
             if (args.query) {
                 const notes = await allNotes();
                 const ids = new Set(notes.filter((n) => matchesQuery(n, args.query)).map((n) => n.id));
@@ -308,6 +377,39 @@ async function handle({ type, args = {} } = {}) {
         default:
             throw new Error(`Unknown message type ${type}`);
     }
+}
+
+// ----- in-page layer --------------------
+
+async function layerPresent(tabId) {
+    try { const r = await chrome.tabs.sendMessage(tabId, { type: 'pn:ping' }); return !!r?.ok; } catch (e) { return false; }
+}
+
+async function ensureLayer(tabId) {
+    if (await layerPresent(tabId)) return;
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content/annotate.js'] });
+    for (let i = 0; i < 20; i++) { if (await layerPresent(tabId)) return; await new Promise((r) => setTimeout(r, 100)); }
+}
+
+// tell every tab on this page to re-read its stickies (no-op where the layer is absent)
+async function notifyLayers(url) {
+    try {
+        const { ident, settings } = await noteForUrl(url);
+        const c = await ctx();
+        for (const t of await chrome.tabs.query({})) {
+            if (!t.url) continue;
+            if (identify(t.url, c.compiled, settings.normalization).key !== ident.key) continue;
+            chrome.tabs.sendMessage(t.id, { type: 'pn:refresh' }).catch(() => {});
+        }
+    } catch (e) { /* ignore */ }
+}
+
+async function alwaysShowState(url) {
+    try {
+        const origin = new URL(url).origin;
+        const scripts = await chrome.scripting.getRegisteredContentScripts({ ids: [`layer:${origin}`] }).catch(() => []);
+        return { origin, enabled: scripts.length > 0 };
+    } catch (e) { return { origin: '', enabled: false }; }
 }
 
 // ----- presence badge --------------------

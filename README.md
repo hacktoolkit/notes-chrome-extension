@@ -52,7 +52,7 @@ Likes cheese. Two kids, dog named Fluffy.
 
 ## Privacy
 
-Everything is stored in your browser profile with `chrome.storage.local`. No network requests, no accounts, no analytics. A page is captured only when you act on it, saving a note or opening the popup there, using the `activeTab` grant that your click provides, and the capture never leaves the browser. There are no background content scripts and nothing runs on pages you merely visit. Export and the Obsidian vault connection write files only where you choose.
+Everything is stored in your browser profile with `chrome.storage.local`. No network requests, no accounts, no analytics. The in-page sticky layer is injected only when you click the icon or add a sticky on that page; the one exception is a site where you turned on "Always show stickies", which asks the browser for permission on that site alone. A page is captured only when you act on it, saving a note or opening the popup there, using the `activeTab` grant that your click provides, and the capture never leaves the browser. There are no background content scripts and nothing runs on pages you merely visit. Export and the Obsidian vault connection write files only where you choose.
 
 Profile insights are computed locally from the text you captured, phrased as questions, and never make inferences about protected characteristics. Overlapping dates have ordinary explanations; the point is to know what to ask.
 
@@ -74,6 +74,8 @@ src/background.js      service worker: messages, presence badge, reminders, snoo
 src/lib/notes.js       pure note model, captures and Markdown (tested)
 src/lib/profile.js     pure profile parser, consistency analysis, edit detection, text diff (tested)
 src/lib/url.js         URL identity rules, copied from Organize Tabs (tested)
+src/lib/anchor.js      how a sticky finds its element again: css, quote, path (tested)
+src/content/           the in-page layer: pins, popover, pick mode, in a shadow root
 src/lib/store.js       chrome.storage.local notes and index; Obsidian vault handle
 src/lib/zip.js         minimal zip writer for export (tested)
 src/lib/settings.js    settings in storage.sync with local fallback

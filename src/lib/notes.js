@@ -48,8 +48,50 @@ export function newNote({ url, title, key, rule, now = new Date() }) {
         remind: null,
         entries: [],
         snapshot: null,
-        snapshots: []
+        snapshots: [],
+        stickies: []
     };
+}
+
+// ----- stickies: notes attached to an element on the page --------------------
+
+export function stickyId() {
+    return Math.random().toString(36).slice(2, 10);
+}
+
+export function addSticky(note, { anchor, text = '' }, now = new Date()) {
+    const iso = now.toISOString();
+    const sticky = { id: stickyId(), anchor, text: (text || '').trim(), created: iso, updated: iso };
+    return { ...note, updated: iso, stickies: [...(note.stickies || []), sticky] };
+}
+
+export function updateSticky(note, id, patch, now = new Date()) {
+    const iso = now.toISOString();
+    let changed = false;
+    const stickies = (note.stickies || []).map((s) => {
+        if (s.id !== id) return s;
+        const next = { ...s, ...patch, text: patch.text !== undefined ? (patch.text || '').trim() : s.text, updated: iso };
+        changed = JSON.stringify(next) !== JSON.stringify({ ...s, updated: iso });
+        return next;
+    });
+    return changed ? { ...note, updated: iso, stickies } : note;
+}
+
+export function removeSticky(note, id, now = new Date()) {
+    const stickies = (note.stickies || []).filter((s) => s.id !== id);
+    if (stickies.length === (note.stickies || []).length) return note;
+    return { ...note, updated: now.toISOString(), stickies };
+}
+
+// The feedback a reviewer sends: a numbered list with the quoted context.
+export function feedbackMarkdown(note) {
+    const lines = [`Feedback on ${note.title}`, note.url, ''];
+    (note.stickies || []).forEach((s, i) => {
+        const quote = s.anchor?.quote?.exact ? `"${s.anchor.quote.exact.slice(0, 120)}${s.anchor.quote.exact.length > 120 ? '…' : ''}"` : (s.anchor?.label || s.anchor?.tag || 'element');
+        lines.push(`${i + 1}. ${quote}`);
+        if (s.text) lines.push(`   ${s.text.replace(/\n/g, '\n   ')}`);
+    });
+    return lines.join('\n');
 }
 
 export function addEntry(note, text, now = new Date()) {
@@ -177,6 +219,15 @@ export function toMarkdown(note) {
     for (const e of [...note.entries].reverse()) {
         lines.push(`## ${fmtStamp(e.at)}`, '', e.text, '');
     }
+    if (note.stickies?.length) {
+        lines.push('## Stickies', '');
+        note.stickies.forEach((s, i) => {
+            const quote = s.anchor?.quote?.exact ? `"${s.anchor.quote.exact}"` : (s.anchor?.label || s.anchor?.tag || 'element');
+            lines.push(`${i + 1}. **${quote}** ${s.text ? `— ${s.text.replace(/\n/g, ' ')}` : ''}`.trimEnd());
+            lines.push(`   <!-- sticky ${JSON.stringify({ id: s.id, anchor: s.anchor, created: s.created, updated: s.updated })} -->`);
+        });
+        lines.push('');
+    }
     return lines.join('\n');
 }
 
@@ -202,7 +253,29 @@ export function fromMarkdown(text) {
         if (i > 0) meta[line.slice(0, i).trim()] = parseYamlValue(line.slice(i + 1));
     }
     if (!meta.url || !meta.key) throw new Error('Frontmatter needs url and key');
-    const body = m[2];
+    let body = m[2];
+    // stickies live in their own section, carried with hidden anchors
+    const stickies = [];
+    const sm = /\n## Stickies\n([\s\S]*)$/.exec(`\n${body}`);
+    if (sm) {
+        body = body.slice(0, body.length - sm[0].length + 1);
+        const items = sm[1].split(/\n(?=\d+\. )/);
+        for (const item of items) {
+            const head = /^\d+\. \*\*(.*?)\*\*\s*(?:— (.*))?$/m.exec(item);
+            const meta = /<!-- sticky (\{[\s\S]*?\}) -->/.exec(item);
+            if (!head) continue;
+            let carried = {};
+            try { carried = meta ? JSON.parse(meta[1]) : {}; } catch (e) { carried = {}; }
+            const quoteText = head[1].replace(/^"|"$/g, '');
+            stickies.push({
+                id: carried.id || stickyId(),
+                anchor: carried.anchor || { quote: { exact: quoteText, prefix: '', suffix: '' } },
+                text: (head[2] || '').trim(),
+                created: carried.created || meta?.created || new Date().toISOString(),
+                updated: carried.updated || new Date().toISOString()
+            });
+        }
+    }
     const entries = [];
     const re = /^## (\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}))?\s*$/gm;
     let last = null;
@@ -241,7 +314,8 @@ export function fromMarkdown(text) {
         remind: meta.remind || null,
         entries,
         snapshot: meta.excerpt ? { at: meta.updated || null, text: meta.excerpt } : null,
-        snapshots: []
+        snapshots: [],
+        stickies
     };
 }
 
@@ -270,6 +344,7 @@ export function mergeNotes(existing, incoming, now = new Date()) {
         remind: existing.remind,
         snapshot: existing.snapshot || incoming.snapshot,
         snapshots: existing.snapshots?.length ? existing.snapshots : incoming.snapshots || [],
+        stickies: [...(existing.stickies || []), ...(incoming.stickies || []).filter((s) => !(existing.stickies || []).some((e) => e.id === s.id))],
         entries
     };
 }
@@ -288,6 +363,7 @@ export function indexEntry(note) {
         remind: note.remind,
         entries: note.entries.length,
         captures: (note.snapshots || []).length,
+        stickies: (note.stickies || []).length,
         rule: note.rule || null,
         preview: (last?.text || '').slice(0, 120)
     };

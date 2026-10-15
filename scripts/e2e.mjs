@@ -6,7 +6,32 @@
 //   BROWSER=/path/to/chromium make e2e
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { join as pjoin } from 'node:path';
+import { join as pjoin, extname } from 'node:path';
+import { createServer } from 'node:http';
+
+// A local page for the in-page layer, plus the extension's src served over
+// http so the layer module can be imported into the page with a stubbed
+// chrome.* (the real injection needs a click the harness cannot give).
+const FIXTURE_HTML = `<!doctype html><html><head><title>Pricing – Site</title></head><body>
+<div id="__next"><main>
+<p>Welcome to the product.</p>
+<section id="pricing"><h2>Pricing</h2><p>Plans start at $9 per month, billed yearly.</p>
+<ul><li>First point about speed</li><li>Second point about pricing</li><li>Third point about support</li></ul></section>
+</main></div></body></html>`;
+const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/pricing') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(FIXTURE_HTML); }
+    if (url.pathname.startsWith('/src/')) {
+        try {
+            const body = readFileSync(pjoin(EXT, url.pathname), 'utf8');
+            res.writeHead(200, { 'content-type': extname(url.pathname) === '.js' ? 'text/javascript' : 'text/plain' });
+            return res.end(body);
+        } catch (e) { /* fall through */ }
+    }
+    res.writeHead(404); res.end('nope');
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const LOCAL = `http://127.0.0.1:${server.address().port}`;
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +48,7 @@ const profile = mkdtempSync(join(HOLODECK, 'tmp', 'e2e-'));
 
 const chrome = spawn(CHROME, [
     `--user-data-dir=${profile}`, `--load-extension=${EXT}`, `--remote-debugging-port=${PORT}`,
-    '--headless=new', '--host-resolver-rules=MAP * ~NOTFOUND', '--no-first-run', '--no-default-browser-check',
+    '--headless=new', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', '--no-first-run', '--no-default-browser-check',
     ...(process.env.CI ? ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] : []),
     'about:blank'
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -255,6 +280,87 @@ try {
     const rendered = await popup.eval(`document.querySelector('#entry').value + '|' + document.querySelectorAll('#entries .entry').length`);
     check('popup shows today\'s entry in the editor for the active page', rendered === 'Reviewed. Waiting on CI.|0', rendered);
 
+    // stickies: anchored notes through the message API
+    await popup.eval(`chrome.windows.create({ url: ['${LOCAL}/pricing'], focused: false })`);
+    await sleep(800);
+    const priceTab = (await tabs()).find((t) => t.url === `${LOCAL}/pricing`);
+    const anchorA = { css: '#pricing > p:nth-of-type(1)', path: 'body > div:nth-of-type(1) > main:nth-of-type(1) > section:nth-of-type(1) > p:nth-of-type(1)', quote: { exact: 'Plans start at $9 per month, billed yearly.', prefix: 'Pricing ', suffix: '' }, tag: 'p', label: '' };
+    const st1 = await send({ type: 'stickyAdd', args: { url: priceTab.url, title: 'Pricing – Site', anchor: anchorA, text: 'Lead with the annual price.' } });
+    check('stickyAdd creates a sticky on a new note', st1 && st1.id && st1.text === 'Lead with the annual price.', JSON.stringify(st1));
+    await send({ type: 'stickyUpdate', args: { url: priceTab.url, id: st1.id, text: 'Lead with the annual price, then monthly.' } });
+    const st2 = await send({ type: 'stickyAdd', args: { url: priceTab.url, anchor: { ...anchorA, css: '#pricing > h2:nth-of-type(1)', quote: { exact: 'Pricing', prefix: '', suffix: '' }, tag: 'h2' } } });
+    let listed = await send({ type: 'stickies', args: { url: priceTab.url } });
+    check('stickies list and update', listed.length === 2 && listed[0].text === 'Lead with the annual price, then monthly.' && listed[1].text === '', JSON.stringify(listed.map((s) => s.text)));
+    const priceRow = (await send({ type: 'list' })).find((r) => r.url === priceTab.url);
+    check('a sticky-only note is listed with its sticky count', priceRow && priceRow.stickies === 2, JSON.stringify(priceRow));
+    const fb = await send({ type: 'feedback', args: { id: priceRow.id } });
+    check('feedback export is a numbered list with quotes', /^Feedback on Pricing – Site\n/.test(fb) && /1\. "Plans start at \$9 per month, billed yearly\."\n   Lead with the annual price, then monthly\.\n2\. "Pricing"$/.test(fb), fb);
+    await send({ type: 'stickyRemove', args: { url: priceTab.url, id: st2.id } });
+    listed = await send({ type: 'stickies', args: { url: priceTab.url } });
+    check('stickyRemove', listed.length === 1);
+    const settingsTab = await popup.eval(`chrome.tabs.create({ url: 'chrome://version/', active: false })`);
+    await sleep(500);
+    const annotateErr = await send({ type: 'annotate', args: { tabId: settingsTab.id, pick: true } }).then(() => '', (e) => e.message);
+    check('annotate refuses non-web pages', /web pages only/.test(annotateErr), annotateErr);
+    await popup.eval(`chrome.tabs.remove(${settingsTab.id})`);
+
+    // the in-page layer, in a real DOM: load the module over http with a stubbed chrome
+    const pageT = await waitFor((t) => t.url === `${LOCAL}/pricing`, 'pricing page');
+    const page = await CDP.connect(pageT.webSocketDebuggerUrl);
+    check('fixture page loaded from the local server', (await page.eval('document.title')) === 'Pricing – Site', await page.eval('document.title'));
+    await page.eval(`
+        window.__store = { stickies: ${JSON.stringify(listed)}, calls: [] };
+        window.chrome = { runtime: {
+            getManifest: () => ({ name: 'Page Notes' }),
+            getURL: (p) => '${LOCAL}/' + p,
+            onMessage: { addListener(fn) { window.__onMessage = fn; } },
+            sendMessage(msg, cb) {
+                window.__store.calls.push(msg);
+                const a = msg.args || {};
+                if (msg.type === 'stickies') return cb({ ok: true, result: window.__store.stickies });
+                if (msg.type === 'stickyAdd') { const s = { id: 's' + Date.now(), anchor: a.anchor, text: '', created: '', updated: '' }; window.__store.stickies.push(s); return cb({ ok: true, result: s }); }
+                if (msg.type === 'stickyUpdate') { const s = window.__store.stickies.find((x) => x.id === a.id); if (s) s.text = a.text; return cb({ ok: true, result: true }); }
+                if (msg.type === 'stickyRemove') { window.__store.stickies = window.__store.stickies.filter((x) => x.id !== a.id); return cb({ ok: true, result: true }); }
+                cb({ ok: true, result: true });
+            }
+        } };
+        import('${LOCAL}/src/content/layer.js').then((m) => { window.__layer = m.boot(); return 'booted'; })
+    `);
+    await sleep(800);
+    const shadowQ = (sel) => `[...document.querySelector('[data-page-notes]').shadowRoot.querySelectorAll(${JSON.stringify(sel)})]`;
+    const pins = await page.eval(`${shadowQ('.pin')}.map((p) => p.textContent + ':' + p.className).join(',')`);
+    check('layer renders a pin for the resolved sticky', pins === '1:pin', pins);
+    const pinPos = await page.eval(`(() => { const p = ${shadowQ('.pin')}[0]; const r = document.querySelector('#pricing > p').getBoundingClientRect(); return Math.abs(parseFloat(p.style.left) - (r.left + r.width - 11)) < 2 && Math.abs(parseFloat(p.style.top) - (r.top - 11)) < 2; })()`);
+    check('pin sits at the element\'s top-right corner', pinPos === true);
+    // click the pin: popover opens with the sticky text; typing autosaves through sendMessage
+    await page.eval(`${shadowQ('.pin')}[0].click()`);
+    await sleep(200);
+    const popText = await page.eval(`${shadowQ('.pop textarea')}[0]?.value`);
+    check('clicking a pin opens its popover', popText === 'Lead with the annual price, then monthly.', popText);
+    await page.eval(`const ta = ${shadowQ('.pop textarea')}[0]; ta.value = 'Edited in place.'; ta.dispatchEvent(new Event('input'));`);
+    await sleep(700);
+    const saved = await page.eval(`window.__store.calls.filter((c) => c.type === 'stickyUpdate').pop()?.args.text`);
+    check('popover edits autosave', saved === 'Edited in place.', String(saved));
+    // pick mode: hover the list item, click it, a new sticky is created with a quote anchor
+    await page.eval(`window.__layer.enterPick(); true`);
+    await sleep(100);
+    const picked = await page.eval(`(() => {
+        const li = document.querySelectorAll('#pricing li')[1];
+        const r = li.getBoundingClientRect();
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + 5, clientY: r.top + 5, bubbles: true }));
+        document.dispatchEvent(new MouseEvent('click', { clientX: r.left + 5, clientY: r.top + 5, bubbles: true }));
+        return new Promise((res) => setTimeout(() => res(window.__store.calls.filter((c) => c.type === 'stickyAdd').pop()?.args.anchor), 400));
+    })()`);
+    check('pick mode anchors the clicked element', picked && picked.quote.exact === 'Second point about pricing' && /li:nth-of-type\(2\)$/.test(picked.css), JSON.stringify(picked));
+    await sleep(400);
+    const pinsAfter = await page.eval(`${shadowQ('.pin')}.length`);
+    check('new sticky gets a pin', pinsAfter === 2, String(pinsAfter));
+    // an anchor whose text is gone shows as an orphan
+    await page.eval(`window.__store.stickies.push({ id: 'ghost', anchor: { css: '#nowhere', path: 'body > p:nth-of-type(9)', quote: { exact: 'Text that is not on this page at all', prefix: '', suffix: '' }, tag: 'p' }, text: 'lost' }); window.__layer.refresh(); true`);
+    await sleep(400);
+    const orphan = await page.eval(`${shadowQ('.pin.orphan')}.length + ':' + (window.__store.calls.filter((c) => c.type === 'stickyPlacement').pop()?.args.placement.find((p) => p.id === 'ghost')?.found)`);
+    check('unresolvable sticky is marked orphan and reported', orphan === '1:false', orphan);
+
     // side panel: same view, follows the active tab, setting flips the icon behaviour
     check('popup offers the sidebar', await popup.eval(`!!document.querySelector('#open-panel')`));
     // on a browser page the view says there is nothing to note
@@ -295,7 +401,7 @@ try {
     const vaultState = await opt.eval(`typeof window.showDirectoryPicker === 'function' ? 'supported:' + document.querySelector('#vault-unsupported').hidden : 'unsupported:' + document.querySelector('#vault-unsupported').hidden + ':' + document.querySelector('#vault-connect').disabled`);
     check('vault section explains itself when folder access is unavailable', vaultState === 'supported:true' || vaultState === 'unsupported:false:true', vaultState);
     const optRows = await opt.eval(`document.querySelectorAll('#note-list .note').length`);
-    check('options page lists notes with entries', optRows === 4, `${optRows} rows`);
+    check('options page lists notes with entries or stickies', optRows === 5, `${optRows} rows`);
 } catch (e) {
     console.error('E2E ERROR', e);
     failures++;
@@ -303,6 +409,7 @@ try {
     chrome.kill('SIGKILL');
     await sleep(300);
     rmSync(profile, { recursive: true, force: true });
+    server.close();
     console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL PASSED');
     process.exit(failures ? 1 : 0);
 }
