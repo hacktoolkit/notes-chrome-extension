@@ -73,7 +73,8 @@ export function boot() {
             pin.style.display = '';
             pin.style.left = `${r.left + r.width - 11}px`;
             pin.style.top = `${r.top - 11}px`;
-            if (ring) { ring.style.display = ''; Object.assign(ring.style, { left: `${r.left - 3}px`, top: `${r.top - 3}px`, width: `${r.width + 6}px`, height: `${r.height + 6}px` }); }
+            // the ring is positioned here but shown only on hover or while open
+            if (ring) Object.assign(ring.style, { left: `${r.left - 3}px`, top: `${r.top - 3}px`, width: `${r.width + 6}px`, height: `${r.height + 6}px` });
         }
         if (pop?.anchorEl) {
             const r = rectOf(pop.anchorEl);
@@ -84,7 +85,7 @@ export function boot() {
 
     function closePop() {
         if (pop) { pop.remove(); pop = null; }
-        for (const { pin } of placed.values()) pin.classList.remove('open');
+        for (const { pin, ring } of placed.values()) { pin.classList.remove('open'); if (ring) ring.style.display = 'none'; }
     }
 
     function openPop(sticky, el, index) {
@@ -119,7 +120,9 @@ export function boot() {
         row.append(status, sp, del, done);
         pop.append(q, ta, row);
         shadow.append(pop);
-        placed.get(sticky.id)?.pin.classList.add('open');
+        const entry = placed.get(sticky.id);
+        entry?.pin.classList.add('open');
+        if (entry?.ring) entry.ring.style.display = '';
         layout();
         ta.focus();
     }

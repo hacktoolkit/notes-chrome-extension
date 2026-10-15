@@ -9,6 +9,7 @@ Vanilla JavaScript, Manifest V3, no build step, no dependencies, no server. Noth
   <img src="promo/popup-remind.png" width="300" alt="Reminders and snooze" />
 </p>
 <p><img src="promo/note-detail.png" width="620" alt="Note detail with insights, changes and captures" /></p>
+<p><img src="promo/stickies-page.png" width="620" alt="Stickies pinned to parts of a pricing page, one open for editing" /></p>
 
 ## What it does
 
