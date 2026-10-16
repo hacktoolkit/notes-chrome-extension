@@ -5,7 +5,7 @@
 //   make e2e
 //   BROWSER=/path/to/chromium make e2e
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join as pjoin, extname } from 'node:path';
 import { createServer } from 'node:http';
 
@@ -105,6 +105,16 @@ function check(label, cond, detail = '') {
     if (!cond) failures++;
 }
 
+async function screenshot(cdp, name, width, height, dark = false) {
+    if (!process.env.E2E_SCREENSHOTS) return;
+    mkdirSync(process.env.E2E_SCREENSHOTS, { recursive: true });
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
+    await sleep(200);
+    const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(join(process.env.E2E_SCREENSHOTS, `${name}.png`), Buffer.from(shot.data, 'base64'));
+}
+
 try {
     const extId = await findExtensionId();
     const browserInfo = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json();
@@ -118,6 +128,7 @@ try {
         if (await popup.eval(`typeof chrome !== 'undefined' && !!chrome.windows && location.protocol === 'chrome-extension:'`).catch(() => false)) break;
         await sleep(250);
     }
+    const toMarkdownOf = (id) => popup.eval(`import('./lib/notes.js').then(async (m) => m.toMarkdown(await new Promise((res) => chrome.runtime.sendMessage({ type: 'get', args: { id: ${JSON.stringify(id)} } }, (r) => res(r.result)))))`);
     const send = (msg) => popup.eval(`new Promise((res, rej) => chrome.runtime.sendMessage(${JSON.stringify(msg)}, (r) => r && r.ok ? res(r.result) : rej(new Error(r ? r.error : chrome.runtime.lastError?.message))))`);
     const tabs = () => popup.eval('chrome.tabs.query({})');
 
@@ -144,6 +155,7 @@ try {
     const badgeB = await popup.eval(`chrome.action.getBadgeText({ tabId: ${prFiles.id} })`);
     const badgeC = await popup.eval(`chrome.action.getBadgeText({ tabId: ${plain.id} })`);
     check('presence badge on both variants, none on an unrelated page', badgeA === '2' && badgeB === '2' && badgeC === '', `${badgeA}/${badgeB}/${badgeC}`);
+    check('saved-note badge is red and explains its count', (await popup.eval(`chrome.action.getBadgeBackgroundColor({ tabId: ${pr.id} })`)).slice(0, 3).join(',') === '199,59,59' && /2 saved notes/.test(await popup.eval(`chrome.action.getTitle({ tabId: ${pr.id} })`)));
 
     // edit and remove
     const edited = await send({ type: 'updateEntry', args: { id: n2.id, index: 0, text: 'Reviewed. Waiting on CI.' } });
@@ -293,11 +305,35 @@ try {
     check('stickies list and update', listed.length === 2 && listed[0].text === 'Lead with the annual price, then monthly.' && listed[1].text === '', JSON.stringify(listed.map((s) => s.text)));
     const priceRow = (await send({ type: 'list' })).find((r) => r.url === priceTab.url);
     check('a sticky-only note is listed with its sticky count', priceRow && priceRow.stickies === 2, JSON.stringify(priceRow));
+    await sleep(500);
+    check('toolbar counts sticky-only notes', await popup.eval(`chrome.action.getBadgeText({ tabId: ${priceTab.id} })`) === '2');
+    check('stickies are visible by default', (await send({ type: 'stickyVisibility' })).visible === true);
+    await send({ type: 'stickyVisibility', args: { visible: false } });
+    check('sticky visibility is saved globally', (await send({ type: 'stickyVisibility' })).visible === false && (await popup.eval(`chrome.storage.local.get('stickies:visible')`))['stickies:visible'] === false);
+    await send({ type: 'stickyVisibility', args: { visible: true } });
     const fb = await send({ type: 'feedback', args: { id: priceRow.id } });
     check('feedback export is a numbered list with quotes', /^Feedback on Pricing – Site\n/.test(fb) && /1\. "Plans start at \$9 per month, billed yearly\."\n   Lead with the annual price, then monthly\.\n2\. "Pricing"$/.test(fb), fb);
     await send({ type: 'stickyRemove', args: { url: priceTab.url, id: st2.id } });
     listed = await send({ type: 'stickies', args: { url: priceTab.url } });
     check('stickyRemove', listed.length === 1);
+
+    // links: pages connected across sites, symmetric, by canonical key
+    const linkedA = await send({ type: 'link', args: { id: n2.id, otherId: liNote.id } });
+    check('link connects two pages and resolves the other side', linkedA.note.links.length === 1 && linkedA.linked.length === 1 && linkedA.linked[0].id === liNote.id && linkedA.linked[0].host === 'linkedin.com', JSON.stringify(linkedA.linked));
+    const liLinks = await send({ type: 'links', args: { id: liNote.id } });
+    check('a link is visible from both pages', liLinks.length === 1 && liLinks[0].id === n2.id && /github/.test(liLinks[0].host), JSON.stringify(liLinks));
+    check('linking again is a no-op', (await send({ type: 'link', args: { id: n2.id, otherId: liNote.id } })).note.links.length === 1);
+    const selfLink = await send({ type: 'link', args: { id: n2.id, otherId: n2.id } }).then(() => '', (e) => e.message);
+    check('a page cannot link to itself', /itself/.test(selfLink), selfLink);
+    check('markdown export carries links by key', /\nlinks: \[linkedin:/.test(await toMarkdownOf(n2.id)), (await toMarkdownOf(n2.id)).split('\n').find((l) => l.startsWith('links:')) || 'no links line');
+    check('index rows count links', (await send({ type: 'list' })).find((r) => r.id === n2.id).links === 1);
+    const linkedByUrl = await send({ type: 'link', args: { url: 'https://example.com/never-noted', title: 'Fresh page', otherId: liNote.id } });
+    check('linking a page without a note creates one', linkedByUrl.note.entries.length === 0 && linkedByUrl.linked[0].id === liNote.id && (await send({ type: 'links', args: { id: liNote.id } })).length === 2, JSON.stringify(linkedByUrl.note.links));
+    await send({ type: 'deleteNote', args: { id: linkedByUrl.note.id } });
+    check('deleting a page removes it from the pages it was linked to', (await send({ type: 'links', args: { id: liNote.id } })).length === 1);
+    const unlinked = await send({ type: 'unlink', args: { id: liNote.id, otherId: n2.id } });
+    check('unlink removes both sides', unlinked.linked.length === 0 && (await send({ type: 'links', args: { id: n2.id } })).length === 0);
+    await send({ type: 'link', args: { id: n2.id, otherId: liNote.id } }); // kept for the UI checks below
     const settingsTab = await popup.eval(`chrome.tabs.create({ url: 'chrome://version/', active: false })`);
     await sleep(500);
     const annotateErr = await send({ type: 'annotate', args: { tabId: settingsTab.id, pick: true } }).then(() => '', (e) => e.message);
@@ -309,18 +345,21 @@ try {
     const page = await CDP.connect(pageT.webSocketDebuggerUrl);
     check('fixture page loaded from the local server', (await page.eval('document.title')) === 'Pricing – Site', await page.eval('document.title'));
     await page.eval(`
-        window.__store = { stickies: ${JSON.stringify(listed)}, calls: [] };
+        window.__store = { stickies: ${JSON.stringify(listed)}, calls: [], visible: true };
         window.chrome = { runtime: {
+            id: 'stub',
             getManifest: () => ({ name: 'Page Notes' }),
             getURL: (p) => '${LOCAL}/' + p,
             onMessage: { addListener(fn) { window.__onMessage = fn; } },
             sendMessage(msg, cb) {
                 window.__store.calls.push(msg);
                 const a = msg.args || {};
+                if (msg.type === 'stickyVisibility') { if (typeof a.visible === 'boolean') window.__store.visible = a.visible; return cb({ ok: true, result: { visible: window.__store.visible } }); }
                 if (msg.type === 'stickies') return cb({ ok: true, result: window.__store.stickies });
                 if (msg.type === 'stickyAdd') { const s = { id: 's' + Date.now(), anchor: a.anchor, text: '', created: '', updated: '' }; window.__store.stickies.push(s); return cb({ ok: true, result: s }); }
                 if (msg.type === 'stickyUpdate') { const s = window.__store.stickies.find((x) => x.id === a.id); if (s) s.text = a.text; return cb({ ok: true, result: true }); }
                 if (msg.type === 'stickyRemove') { window.__store.stickies = window.__store.stickies.filter((x) => x.id !== a.id); return cb({ ok: true, result: true }); }
+                if (msg.type === 'widgetLayout') { window.__store.layout = { ...(window.__store.layout || {}), ...(a.layout || {}) }; return cb({ ok: true, result: window.__store.layout }); }
                 cb({ ok: true, result: true });
             }
         } };
@@ -330,7 +369,7 @@ try {
     const shadowQ = (sel) => `[...document.querySelector('[data-page-notes]').shadowRoot.querySelectorAll(${JSON.stringify(sel)})]`;
     const pins = await page.eval(`${shadowQ('.pin')}.map((p) => p.textContent + ':' + p.className).join(',')`);
     check('layer renders a pin for the resolved sticky', pins === '1:pin', pins);
-    const pinPos = await page.eval(`(() => { const p = ${shadowQ('.pin')}[0]; const r = document.querySelector('#pricing > p').getBoundingClientRect(); return Math.abs(parseFloat(p.style.left) - (r.left + r.width - 11)) < 2 && Math.abs(parseFloat(p.style.top) - (r.top - 11)) < 2; })()`);
+    const pinPos = await page.eval(`(() => { const p = ${shadowQ('.pin')}[0]; const r = document.querySelector('#pricing > p').getBoundingClientRect(); return Math.abs(parseFloat(p.style.left) - Math.min(r.left + r.width - 14, window.innerWidth - 30)) < 2 && Math.abs(parseFloat(p.style.top) - Math.max(0, r.top - 14)) < 2; })()`);
     check('pin sits at the element\'s top-right corner', pinPos === true);
     // click the pin: popover opens with the sticky text; typing autosaves through sendMessage
     await page.eval(`${shadowQ('.pin')}[0].click()`);
@@ -341,6 +380,18 @@ try {
     await sleep(700);
     const saved = await page.eval(`window.__store.calls.filter((c) => c.type === 'stickyUpdate').pop()?.args.text`);
     check('popover edits autosave', saved === 'Edited in place.', String(saved));
+    await screenshot(page, 'sticky', 1000, 700);
+    await page.eval(`${shadowQ('.pop textarea')}[0].value = 'Saved while hiding'; ${shadowQ('.dock button')}[0].click();`);
+    await sleep(300);
+    check('hide all conceals annotations and flushes the open sticky', await page.eval(`${shadowQ('.annotations')}[0].hidden && !${shadowQ('.dock')}[0].hidden && window.__store.stickies[0].text === 'Saved while hiding' && !window.__store.visible`));
+    await page.eval(`window.__layer.refresh(); true`);
+    await sleep(200);
+    check('hidden stickies stay hidden after refresh', await page.eval(`${shadowQ('.annotations')}[0].hidden`));
+    await page.eval(`${shadowQ('.dock button')}[0].click();`);
+    await sleep(100);
+    check('show all restores sticky pins', await page.eval(`!${shadowQ('.annotations')}[0].hidden && window.__store.visible`));
+    await page.eval(`window.__onMessage({ type: 'pn:visibility', visible: false }, {}, () => {});`);
+    check('visibility broadcasts hide another open layer', await page.eval(`${shadowQ('.annotations')}[0].hidden`));
     // pick mode: hover the list item, click it, a new sticky is created with a quote anchor
     await page.eval(`window.__layer.enterPick(); true`);
     await sleep(100);
@@ -361,6 +412,51 @@ try {
     const orphan = await page.eval(`${shadowQ('.pin.orphan')}.length + ':' + (window.__store.calls.filter((c) => c.type === 'stickyPlacement').pop()?.args.placement.find((p) => p.id === 'ghost')?.found)`);
     check('unresolvable sticky is marked orphan and reported', orphan === '1:false', orphan);
 
+    // a layer orphaned by an extension reload is replaced, not reused, by the bootstrap
+    const rebooted = await page.eval(`(async () => {
+        const hosts = () => document.querySelectorAll('[data-page-notes]').length;
+        window.__pageNotesLayer = { refresh() { window.__staleRefreshed = true; }, alive: () => false };
+        const before = hosts();
+        const src = await (await fetch('${LOCAL}/src/content/annotate.js')).text();
+        (0, eval)(src);
+        await new Promise((r) => setTimeout(r, 600));
+        return JSON.stringify({ before, after: hosts(), stale: !!window.__staleRefreshed, alive: window.__pageNotesLayer?.alive?.() });
+    })()`);
+    check('bootstrap replaces a dead layer and keeps one host', rebooted === '{"before":1,"after":1,"stale":false,"alive":true}', rebooted);
+    await page.eval(`window.__layer = window.__pageNotesLayer; true`);
+    await sleep(300);
+    check('the fresh layer renders the stickies again', await page.eval(`${shadowQ('.pin')}.length === 3`), String(await page.eval(`${shadowQ('.pin')}.length`)));
+    const kept = await page.eval(`(async () => { const h = document.querySelector('[data-page-notes]'); const src = await (await fetch('${LOCAL}/src/content/annotate.js')).text(); (0, eval)(src); await new Promise((r) => setTimeout(r, 200)); return document.querySelector('[data-page-notes]') === h; })()`);
+    check('a live layer is reused by the bootstrap', kept === true);
+
+    // floating launch mode: the worker's click handler asks the layer for the widget
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 760, deviceScaleFactor: 1, mobile: false });
+    check('no floating button before the toolbar is used in floating mode', await page.eval(`${shadowQ('.fab')}[0].hidden && ${shadowQ('.widget')}.length === 0`));
+    await page.eval(`window.__store.layout = { fab: { x: 30, y: 40 } }; window.__onMessage({ type: 'pn:widget', toggle: true }, {}, () => {});`);
+    await sleep(300);
+    check('toolbar click shows the floating button where it was left and opens the widget', await page.eval(`!${shadowQ('.fab')}[0].hidden && ${shadowQ('.fab')}[0].style.left === '30px' && ${shadowQ('.fab')}[0].style.top === '40px' && ${shadowQ('.widget')}.length === 1 && !${shadowQ('.widget')}[0].hidden`), await page.eval(`${shadowQ('.fab')}[0].style.cssText`));
+    check('widget hosts the extension\'s own panel page', (await page.eval(`${shadowQ('.widget iframe')}[0].getAttribute('src')`)) === `${LOCAL}/src/panel.html?embed=1`);
+    check('widget opens beside the button', await page.eval(`(() => { const f = ${shadowQ('.fab')}[0].getBoundingClientRect(); const w = ${shadowQ('.widget')}[0].getBoundingClientRect(); return Math.abs(w.left - f.left) < 2 && w.top >= f.bottom; })()`));
+    await page.eval(`window.__onMessage({ type: 'pn:widget', toggle: true }, {}, () => {});`);
+    await sleep(100);
+    check('a second toolbar click closes the widget and keeps the button', await page.eval(`${shadowQ('.widget')}[0].hidden && !${shadowQ('.fab')}[0].hidden`));
+    // drag the button: a short press is a click (opens), a real drag moves and is remembered
+    const drag = (sel, dx, dy) => page.eval(`(() => { const el = ${shadowQ(sel)}[0]; const r = el.getBoundingClientRect(); const x = r.left + 10, y = r.top + 10; const ev = (type, cx, cy) => el.dispatchEvent(new PointerEvent(type, { pointerId: 1, button: 0, clientX: cx, clientY: cy, bubbles: true })); ev('pointerdown', x, y); ev('pointermove', x + ${dx}, y + ${dy}); ev('pointerup', x + ${dx}, y + ${dy}); return [el.style.left, el.style.top].join(','); })()`);
+    const tapped = await drag('.fab', 1, 1);
+    await sleep(100);
+    check('a tap on the floating button opens the widget', await page.eval(`!${shadowQ('.widget')}[0].hidden`) && tapped === '30px,40px', tapped);
+    const dragged = await drag('.fab', 120, 60);
+    await sleep(100);
+    check('dragging the floating button moves it and remembers the spot', dragged === '150px,100px' && await page.eval(`window.__store.layout.fab.x === 150 && window.__store.layout.fab.y === 100 && !${shadowQ('.widget')}[0].hidden`), `${dragged} ${JSON.stringify(await page.eval('window.__store.layout'))}`);
+    await screenshot(page, 'widget', 1000, 760);
+    const draggedWidget = await drag('.widget .bar', 50, 30);
+    check('the widget drags by its bar and remembers the spot', await page.eval(`window.__store.layout.widget && Math.abs(window.__store.layout.widget.x - parseFloat(${shadowQ('.widget')}[0].style.left)) < 1`), `${draggedWidget} ${JSON.stringify(await page.eval('window.__store.layout.widget'))}`);
+    await page.eval(`${shadowQ('.widget .bar button')}[0].click()`);
+    check('the widget\'s own close control hides it', await page.eval(`${shadowQ('.widget')}[0].hidden`));
+    await page.eval(`window.__layer.openWidget(); true`);
+    await page.eval(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    check('Esc on the page closes the widget', await page.eval(`${shadowQ('.widget')}[0].hidden`));
+
     // side panel: same view, follows the active tab, setting flips the icon behaviour
     check('popup offers the sidebar', await popup.eval(`!!document.querySelector('#open-panel')`));
     // on a browser page the view says there is nothing to note
@@ -373,6 +469,7 @@ try {
     await popup.eval(`chrome.tabs.create({ windowId: ${liTab.windowId}, url: 'chrome-extension://${extId}/src/panel.html', active: false })`);
     const panelT = await waitFor((t) => t.url.endsWith('/src/panel.html'), 'panel');
     const panel = await CDP.connect(panelT.webSocketDebuggerUrl);
+    await panel.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 860, deviceScaleFactor: 1, mobile: false });
     await sleep(1200);
     // the panel refreshes asynchronously after a tab switch; poll rather than guess a delay
     const panelTitleIs = async (re) => { for (let i = 0; i < 40; i++) { const t = await panel.eval(`document.querySelector('#page-title').textContent`); if (re.test(t)) return t; await sleep(150); } return panel.eval(`document.querySelector('#page-title').textContent`); };
@@ -385,13 +482,160 @@ try {
     check('side panel follows the active tab', /github/.test(panelTitle1) && /LinkedIn|linkedin/i.test(panelTitle2), `${panelTitle1} -> ${panelTitle2}`);
     const panelEditor = await panel.eval(`document.querySelector('#entry').value`);
     check('side panel shows today\'s entry for the active tab', panelEditor === 'Screening for the CSE role.', panelEditor);
-    await popup.eval(`chrome.storage.sync.set({ settings: { openInSidePanel: true } })`);
-    await send({ type: 'settingsChanged' });
-    await sleep(300);
-    const behaviour = await popup.eval(`chrome.sidePanel.getPanelBehavior().then((b) => b.openPanelOnActionClick)`);
-    check('setting makes the icon open the sidebar', behaviour === true, String(behaviour));
-    await popup.eval(`chrome.storage.sync.set({ settings: { openInSidePanel: false } })`);
-    await send({ type: 'settingsChanged' });
+    check('sidebar flags previously saved notes', await panel.eval(`!document.querySelector('#saved-here').hidden && /1 saved note/.test(document.querySelector('#saved-here').textContent)`));
+    check('empty sticky hint flows across the card', await panel.eval(`getComputedStyle(document.querySelector('#sticky-list .empty-row')).display === 'block' && document.querySelector('#sticky-list .empty-row').getBoundingClientRect().height < 60`));
+
+    // Retained activeTab permission must not turn automatic panel refreshes
+    // into captures. Supply a snapshot on every lookup to simulate access.
+    await panel.eval(`
+        window.__panelSend = chrome.runtime.sendMessage.bind(chrome.runtime);
+        window.__panelCalls = [];
+        chrome.runtime.sendMessage = (msg, cb) => {
+            window.__panelCalls.push(msg);
+            if (msg.type === 'current') msg = { ...msg, args: { ...msg.args, snapshot: { title: 'Unexpected passive capture', text: 'This should never be captured by the panel.' } } };
+            if (msg.type === 'draft' && window.__failDraft) {
+                window.__failDraft = false;
+                cb({ ok: false, error: 'Simulated save failure' });
+                return;
+            }
+            const hold = msg.type === 'draft' && window.__holdDraft;
+            if (hold) window.__holdDraft = false;
+            const holdCurrent = msg.type === 'current' && window.__holdCurrent;
+            if (holdCurrent) window.__holdCurrent = false;
+            window.__panelSend(msg, (r) => {
+                if (hold) window.__releaseDraft = () => cb(r);
+                else if (holdCurrent) window.__releaseCurrent = () => cb(r);
+                else cb(r);
+            });
+        };
+    `);
+    const panelWait = async (expression) => {
+        for (let i = 0; i < 60; i++) {
+            if (await panel.eval(expression)) return true;
+            await sleep(100);
+        }
+        return false;
+    };
+    await popup.eval(`chrome.tabs.move(${draftTab.id}, { windowId: ${liTab.windowId}, index: -1 }).then(() => chrome.tabs.update(${draftTab.id}, { active: true }))`);
+    check('panel loads the draft page without a passive capture', await panelWait(`document.querySelector('#entry').value === 'back again, typed' && document.querySelector('#page-url').textContent === 'draft.test/page'`));
+    const panelCaptures = await send({ type: 'get', args: { id: d.note.id } });
+    check('panel lookup leaves capture history untouched', !panelCaptures.snapshots?.length && await panel.eval(`window.__panelCalls.some((m) => m.type === 'current') && window.__panelCalls.filter((m) => m.type === 'current').every((m) => m.args.capture === false)`));
+
+    // Failed text stays dirty and can be retried without another keystroke.
+    await panel.eval(`window.__failDraft = true; document.querySelector('#entry').value = 'Retry this draft'; document.querySelector('#entry').dispatchEvent(new Event('blur'));`);
+    check('autosave reports a failed write', await panelWait(`document.querySelector('#status').textContent === 'Simulated save failure'`));
+    await panel.eval(`document.querySelector('#entry').dispatchEvent(new Event('blur'));`);
+    check('unchanged text retries successfully after a failed save', await panelWait(`document.querySelector('#status').textContent.startsWith('Saved ')`) && (await send({ type: 'get', args: { id: d.note.id } })).entries[0].text === 'Retry this draft');
+
+    // Hold a save response while the user types more and navigates the same
+    // tab. Both drafts belong to the displayed page, even after its tab moves.
+    await panel.eval(`window.__holdDraft = true; document.querySelector('#entry').value = 'First pending draft'; document.querySelector('#entry').dispatchEvent(new Event('blur'));`);
+    check('draft save can remain in flight', await panelWait(`typeof window.__releaseDraft === 'function'`));
+    await panel.eval(`document.querySelector('#entry').value = 'Last draft before navigation'; document.querySelector('#entry').dispatchEvent(new Event('input'));`);
+    await popup.eval(`chrome.tabs.update(${draftTab.id}, { url: 'https://draft.test/next' })`);
+    await sleep(200);
+    await panel.eval(`window.__releaseDraft();`);
+    check('panel follows navigation after draining pending edits', await panelWait(`document.querySelector('#page-url').textContent === 'draft.test/next' && document.querySelector('#entry').value === ''`));
+    const navigationDraft = await send({ type: 'get', args: { id: d.note.id } });
+    const nextPage = await send({ type: 'current', args: { tabId: draftTab.id, capture: false } });
+    check('pending edits stay on the original canonical page', navigationDraft.entries[0].text === 'Last draft before navigation' && nextPage.note === null, navigationDraft.entries[0].text);
+
+    // A slow response for an earlier tab must not replace the latest view.
+    await panel.eval(`window.__holdCurrent = true;`);
+    await popup.eval(`chrome.tabs.update(${liTab.id}, { active: true })`);
+    check('earlier panel lookup can remain in flight', await panelWait(`typeof window.__releaseCurrent === 'function'`));
+    await popup.eval(`chrome.tabs.update(${pr.id}, { active: true })`);
+    check('newer panel lookup renders while an earlier one is pending', await panelWait(`document.querySelector('#page-url').textContent === 'github.com/dataro/app/pull/482'`));
+    await panel.eval(`window.__releaseCurrent();`);
+    check('late panel response does not replace the active page', await panel.eval(`document.querySelector('#page-url').textContent === 'github.com/dataro/app/pull/482' && document.querySelector('#entry').value === 'Reviewed. Waiting on CI.'`));
+    check('automatic panel refreshes never request a capture', await panel.eval(`window.__panelCalls.filter((m) => m.type === 'current').every((m) => m.args.capture === false)`));
+
+    // linked pages in the sidebar: the current page is the GitHub PR, linked to the LinkedIn profile above
+    check('sidebar lists the linked page with its site', await panel.eval(`!document.querySelector('#linked').hidden && document.querySelectorAll('#linked-list li:not(.empty-row)').length === 1 && document.querySelector('#linked-list .host').textContent === 'linkedin.com'`), await panel.eval(`document.querySelector('#linked-list').textContent`));
+    // the picker: type to find, Enter links; the linked page and this one are excluded
+    await popup.eval(`chrome.tabs.create({ url: 'https://example.com/plain-two', active: false })`); // a third page to pick (its note is created below)
+    await send({ type: 'addEntry', args: { url: 'https://example.com/plain-two', title: 'Plain Two', text: 'another page' } });
+    await panel.eval(`document.querySelector('#add-link').click()`);
+    check('+ Link opens the type-to-find picker', await panelWait(`!document.querySelector('#link-picker').hidden && document.activeElement === document.querySelector('#link-picker input')`));
+    check('picker excludes this page and already linked pages', await panelWait(`document.querySelectorAll('#link-picker .picker-list li').length > 0 && ![...document.querySelectorAll('#link-picker .picker-title')].some((t) => /LinkedIn|^github\\.com$/i.test(t.textContent))`), await panel.eval(`[...document.querySelectorAll('#link-picker .picker-title')].map((t) => t.textContent).join('|')`));
+    await panel.eval(`const i = document.querySelector('#link-picker input'); i.value = 'plain two'; i.dispatchEvent(new Event('input'));`);
+    check('typing filters the pages', await panelWait(`document.querySelectorAll('#link-picker .picker-list li').length === 1 && document.querySelector('#link-picker .picker-title').textContent === 'Plain Two' && document.querySelector('#link-picker .picker-list li').classList.contains('active')`), await panel.eval(`document.querySelector('#link-picker .picker-status').textContent`));
+    await screenshot(panel, 'sidebar-link-picker', 390, 860);
+    await panel.eval(`document.querySelector('#link-picker input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
+    check('Enter links the highlighted page', await panelWait(`document.querySelector('#link-picker').hidden && document.querySelectorAll('#linked-list li:not(.empty-row)').length === 2 && [...document.querySelectorAll('#linked-list .title')].some((t) => t.textContent === 'Plain Two')`), await panel.eval(`document.querySelector('#linked-list').textContent`));
+    await panel.eval(`document.querySelector('#add-link').click()`);
+    await panel.eval(`document.querySelector('#link-picker input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    check('Esc closes the picker without closing the sidebar', await panelWait(`document.querySelector('#link-picker').hidden`) && await panel.eval(`!document.querySelector('main').hidden`));
+    await panel.eval(`[...document.querySelectorAll('#linked-list li')].find((li) => li.querySelector('.title').textContent === 'Plain Two').querySelector('.x').click()`);
+    check('unlink from the list', await panelWait(`document.querySelectorAll('#linked-list li:not(.empty-row)').length === 1`));
+    await panel.eval(`document.querySelector('#linked-list li:not(.empty-row)').click()`);
+    check('clicking a linked page shows it in the library at the page level', await panelWait(`!document.querySelector('#library').hidden && document.querySelector('#library-explorer').dataset.level === '2' && /LinkedIn/.test(document.querySelector('#library .explorer-preview h3')?.textContent || '')`), `level ${await panel.eval(`document.querySelector('#library-explorer').dataset.level`)} ${await panel.eval(`document.querySelector('#library .explorer-preview h3')?.textContent`)}`);
+    check('the library preview lists linked pages too', await panelWait(`document.querySelectorAll('#library .explorer-link').length === 1 && document.querySelector('#library .explorer-link .host').textContent === 'github.com'`));
+    await panel.eval(`document.querySelector('#library .explorer-link').click()`);
+    check('a linked page in the preview navigates to that page', await panelWait(`document.querySelector('#library .explorer-preview h3')?.textContent === 'github.com' && document.querySelector('#library .explorer-site.selected')?.dataset.host === 'github.com'`));
+    await screenshot(panel, 'sidebar-links', 390, 860);
+    await panel.eval(`document.querySelector('#return-to-page').click()`);
+    await panelWait(`document.querySelector('#library').hidden`);
+    // leave the notebook as the later counts expect it
+    const plainTwo = (await send({ type: 'list' })).find((r) => r.title === 'Plain Two');
+    await send({ type: 'deleteNote', args: { id: plainTwo.id } });
+    await popup.eval(`chrome.tabs.query({ url: 'https://example.com/plain-two' }).then((ts) => Promise.all(ts.map((t) => chrome.tabs.remove(t.id))))`);
+
+    // Browse saved notes inside the sidebar without changing the active tab.
+    // Back is hierarchical: page -> its site's pages -> all sites, never a toggle.
+    const level = () => panel.eval(`document.querySelector('#library-explorer').dataset.level`);
+    await panel.eval(`document.querySelector('#browse-notes').click()`);
+    check('sidebar back arrow lands on the current site\'s saved pages', await panelWait(`!document.querySelector('#library').hidden && document.querySelector('#library-explorer').dataset.level === '1' && document.querySelector('#library .explorer-site.selected')?.dataset.host === 'github.com' && document.querySelector('#library .explorer-page.selected')?.dataset.id === '${n2.id}'`), `level ${await level()}`);
+    check('a site\'s page list is titled by the site, with no group headers', await panel.eval(`document.querySelector('#library-title').textContent === 'github.com' && document.querySelector('#library-sub').textContent === '1 saved page' && document.querySelectorAll('#library .explorer-group').length === 0 && document.querySelector('#library .explorer-pages > summary').textContent === 'github.com · 1'`), await panel.eval(`document.querySelector('#library-title').textContent + ' / ' + document.querySelector('#library-sub').textContent`));
+    check('narrow library shows one level at a time', await panel.eval(`getComputedStyle(document.querySelector('#library .explorer-sites')).display === 'none' && getComputedStyle(document.querySelector('#library .explorer-pages')).display !== 'none' && getComputedStyle(document.querySelector('#library .explorer-preview')).display === 'none'`));
+    check('library up arrow is offered below the top level and the return link replaces All notes', await panel.eval(`!document.querySelector('#library-up').hidden && document.querySelector('#open-all').hidden && !document.querySelector('#return-to-page').hidden`));
+    await panel.eval(`document.querySelector('#library-up').click()`);
+    check('up from a site\'s pages reaches all sites and hides the arrow', await panelWait(`document.querySelector('#library-explorer').dataset.level === '0' && document.querySelector('#library-up').hidden && !document.querySelector('#library').hidden`), `level ${await level()}`);
+    await panel.eval(`document.querySelector('#library .explorer-site[data-host=""]').click()`);
+    check('all sites lists every saved page', await panelWait(`document.querySelector('#library-explorer').dataset.level === '1' && document.querySelectorAll('#library .explorer-page').length === 5`), `${await panel.eval(`document.querySelectorAll('#library .explorer-page').length`)} pages`);
+    check('across all sites the pages are listed by site', await panel.eval(`(() => { const groups = [...document.querySelectorAll('#library .explorer-group .explorer-label')].map((g) => g.textContent); const order = [...document.querySelectorAll('#library .explorer-list[aria-label="Saved pages"] > *')].map((n) => n.classList.contains('explorer-group') ? 'G:' + n.querySelector('.explorer-label').textContent : 'P:' + n.querySelector('.explorer-page-excerpt').textContent); return groups.length === 5 && groups.join() === [...groups].sort().join() && order[0].startsWith('G:') && order[1].startsWith('P:'); })()`), await panel.eval(`[...document.querySelectorAll('#library .explorer-group .explorer-label')].map((g) => g.textContent).join(',')`));
+    check('library header names the level', await panel.eval(`document.querySelector('#library-title').textContent === 'All pages' && /5 saved pages, listed by site/.test(document.querySelector('#library-sub').textContent) && document.querySelector('#library .explorer-pages > summary').textContent === 'All pages · 5'`), await panel.eval(`document.querySelector('#library-title').textContent + ' / ' + document.querySelector('#library-sub').textContent`));
+    await panel.eval(`document.querySelector('#library .explorer-page[data-id="${liNote.id}"]').click()`);
+    check('sidebar previews a different saved page inline', await panelWait(`document.querySelector('#library-explorer').dataset.level === '2' && document.querySelector('#library .explorer-preview').textContent.includes('Screening for the CSE role.')`) && (await popup.eval(`chrome.tabs.query({ active: true, windowId: ${liTab.windowId} })`))[0].id === pr.id);
+    check('breadcrumb names the ancestors and the page', await panel.eval(`[...document.querySelectorAll('#library .explorer-trail .crumb')].map((c) => c.textContent).join('|')`) === `All sites|All pages|${await panel.eval(`document.querySelector('#library .explorer-preview h3').textContent`)}`);
+    check('library header shows the page and its site at the page level', await panel.eval(`document.querySelector('#library-title').textContent === document.querySelector('#library .explorer-preview h3').textContent && document.querySelector('#library-sub').textContent === 'linkedin.com'`), await panel.eval(`document.querySelector('#library-title').textContent + ' / ' + document.querySelector('#library-sub').textContent`));
+    await screenshot(panel, 'sidebar-explorer', 390, 860, true);
+    await panel.eval(`document.querySelector('#library-up').click()`);
+    check('up from a page returns to its list, not to the current page', await panelWait(`document.querySelector('#library-explorer').dataset.level === '1' && !document.querySelector('#library').hidden`), `level ${await level()}`);
+    await panel.eval(`document.querySelector('#library .explorer-trail .crumb').click()`);
+    check('breadcrumb jumps to the top', await panelWait(`document.querySelector('#library-explorer').dataset.level === '0'`));
+    await panel.eval(`document.querySelector('#return-to-page').click()`);
+    check('sidebar returns to the current page by its own control', await panelWait(`document.querySelector('#library').hidden && !document.querySelector('main').hidden && document.querySelector('#page-url').textContent === 'github.com/dataro/app/pull/482' && !document.querySelector('#open-all').hidden`));
+    check('sidebar has a close control', await panel.eval(`!!document.querySelector('#close-view') && getComputedStyle(document.querySelector('#close-view')).display !== 'none'`));
+    await screenshot(panel, 'sidebar-current', 390, 860, true);
+
+    // launch mode: popup, docked sidebar or the floating widget on the page
+    const launchState = async () => `${(await popup.eval(`chrome.action.getPopup({})`)).replace(/^chrome-extension:\/\/[^/]+\//, '')}|${await popup.eval(`chrome.sidePanel.getPanelBehavior().then((b) => b.openPanelOnActionClick)`)}`;
+    const setLaunch = async (settings) => { await popup.eval(`chrome.storage.sync.set({ settings: ${JSON.stringify(settings)} })`); await send({ type: 'settingsChanged' }); await sleep(300); };
+    await setLaunch({ launch: 'sidebar' });
+    check('sidebar mode clears the popup so the icon toggles the sidebar', await launchState() === '|true', await launchState());
+    await setLaunch({ launch: 'floating' });
+    check('floating mode clears the popup and the panel behaviour so the click reaches the worker', await launchState() === '|false', await launchState());
+    await setLaunch({ openInSidePanel: true });
+    check('the old sidebar switch still means the sidebar', await launchState() === '|true', await launchState());
+    await setLaunch({ launch: 'popup' });
+    check('popup mode restores the popup', await launchState() === 'src/popup.html|false', await launchState());
+    const layout = await send({ type: 'widgetLayout', args: { layout: { fab: { x: 40, y: 50 } } } });
+    const layout2 = await send({ type: 'widgetLayout', args: { layout: { widget: { x: 1, y: 2 } } } });
+    check('widget layout is remembered and merged', layout.fab?.x === 40 && layout2.fab?.y === 50 && layout2.widget?.x === 1 && JSON.stringify(await send({ type: 'widgetLayout' })) === JSON.stringify(layout2), JSON.stringify(layout2));
+
+    // the panel page embedded in the widget binds to its tab and asks the layer to close it
+    await popup.eval(`chrome.tabs.create({ url: 'chrome-extension://${extId}/src/panel.html?embed=1', active: false })`);
+    const embedT = await waitFor((t) => t.url.endsWith('/src/panel.html?embed=1'), 'embedded panel');
+    const embed = await CDP.connect(embedT.webSocketDebuggerUrl);
+    await sleep(800);
+    check('embedded panel marks itself and hides its own close control', await embed.eval(`document.body.classList.contains('embed') && document.body.classList.contains('panel') && getComputedStyle(document.querySelector('#close-view')).display === 'none'`));
+    await embed.eval(`window.__closeMsg = null; window.addEventListener('message', (e) => { window.__closeMsg = e.data; }); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); true`);
+    let closeMsg = null;
+    for (let i = 0; i < 30; i++) { closeMsg = await embed.eval(`window.__closeMsg`); if (closeMsg) break; await sleep(100); }
+    check('Esc in the embedded panel asks the layer to close the widget', closeMsg?.type === 'pn:widget-close', JSON.stringify(closeMsg));
+    embed.ws.close();
+    await popup.eval(`chrome.tabs.query({ url: 'chrome-extension://${extId}/src/panel.html?embed=1' }).then((ts) => Promise.all(ts.map((t) => chrome.tabs.remove(t.id))))`);
 
     // options page lists notes
     await browser.send('Target.createTarget', { url: `chrome-extension://${extId}/src/options.html` });
@@ -400,8 +644,37 @@ try {
     await sleep(1200);
     const vaultState = await opt.eval(`typeof window.showDirectoryPicker === 'function' ? 'supported:' + document.querySelector('#vault-unsupported').hidden : 'unsupported:' + document.querySelector('#vault-unsupported').hidden + ':' + document.querySelector('#vault-connect').disabled`);
     check('vault section explains itself when folder access is unavailable', vaultState === 'supported:true' || vaultState === 'unsupported:false:true', vaultState);
-    const optRows = await opt.eval(`document.querySelectorAll('#note-list .note').length`);
+    const optRows = await opt.eval(`document.querySelectorAll('#note-list .explorer-page').length`);
     check('options page lists notes with entries or stickies', optRows === 5, `${optRows} rows`);
+    const optWait = async (expression) => { for (let i = 0; i < 50; i++) { if (await opt.eval(expression)) return true; await sleep(100); } return false; };
+    await opt.eval(`document.querySelector('.explorer-site[data-host="linkedin.com"]').click()`);
+    check('explorer groups pages by site and previews notes', await optWait(`document.querySelectorAll('.explorer-page').length === 1 && document.querySelector('.explorer-preview').textContent.includes('Screening for the CSE role.')`));
+    await opt.eval(`document.querySelector('.explorer-site[data-host=""]').click(); document.querySelector('.explorer-page[data-id="${priceRow.id}"]').click();`);
+    check('explorer previews sticky-only pages without calling them capture-only', await optWait(`document.querySelector('.explorer-preview').textContent.includes('Lead with the annual price, then monthly.')`) && await opt.eval(`document.querySelector('.explorer-page[data-id="${priceRow.id}"]').textContent.includes('1 sticky')`));
+    await opt.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    check('wide explorer expands both navigation columns after resizing', await optWait(`document.querySelector('.explorer-sites').open && document.querySelector('.explorer-pages').open`));
+    await screenshot(opt, 'explorer-light', 1440, 900);
+    await screenshot(opt, 'explorer-dark', 1440, 900, true);
+    if (process.env.E2E_SCREENSHOTS) { await opt.eval(`document.querySelector('#settings').scrollIntoView(); true`); await screenshot(opt, 'settings-light', 1440, 900); await opt.eval(`window.scrollTo(0, 0); true`); }
+    await opt.eval(`document.querySelector('#search').value = 'annual price'; document.querySelector('#search').dispatchEvent(new Event('input'));`);
+    check('explorer search includes sticky text', await optWait(`document.querySelectorAll('.explorer-page').length === 1 && document.querySelector('.explorer-page').dataset.id === '${priceRow.id}'`));
+    await opt.eval(`document.querySelector('#search').value = 'no matches for this phrase'; document.querySelector('#search').dispatchEvent(new Event('input'));`);
+    check('explorer has a useful empty search state', await optWait(`document.querySelectorAll('.explorer-page').length === 0 && document.querySelector('.explorer-preview').textContent.includes('No matching notes')`));
+    await opt.eval(`document.querySelector('#search').value = ''; document.querySelector('#search').dispatchEvent(new Event('input')); document.querySelector('#include-captures').click();`);
+    check('explorer can include capture-only pages', await optWait(`document.querySelectorAll('.explorer-page').length === 6`));
+    const opened = await send({ type: 'openNote', args: { id: priceRow.id, page: true } });
+    const tabReaches = async (id, url) => { for (let i = 0; i < 40; i++) { if ((await popup.eval(`chrome.tabs.get(${id})`)).url === url) return true; await sleep(100); } return false; };
+    check('openNote opens the selected saved page', await tabReaches(opened.tabId, priceTab.url));
+    await popup.eval(`chrome.tabs.remove(${opened.tabId})`);
+    const openedDetail = await send({ type: 'openNote', args: { id: priceRow.id } });
+    check('openNote can open full note details', await tabReaches(openedDetail.tabId, `chrome-extension://${extId}/src/note.html?id=${priceRow.id}`));
+    const detailTarget = await waitFor((t) => t.url.endsWith(`/src/note.html?id=${priceRow.id}`), 'sticky details');
+    const stickyDetail = await CDP.connect(detailTarget.webSocketDebuggerUrl);
+    let hasSticky = false;
+    for (let i = 0; i < 40; i++) { hasSticky = await stickyDetail.eval(`document.querySelector('#stickies')?.textContent.includes('Lead with the annual price, then monthly.')`); if (hasSticky) break; await sleep(100); }
+    check('full details include saved sticky comments', hasSticky);
+    stickyDetail.ws.close();
+    await popup.eval(`chrome.tabs.remove(${openedDetail.tabId})`);
 } catch (e) {
     console.error('E2E ERROR', e);
     failures++;

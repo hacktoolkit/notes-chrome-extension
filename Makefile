@@ -12,7 +12,7 @@ test:
 
 ## check - syntax-check every script
 check:
-	@for f in src/*.js src/lib/*.js scripts/*.mjs; do node --check $$f && echo "ok $$f"; done
+	@for f in src/*.js src/lib/*.js src/content/*.js scripts/*.mjs; do node --check $$f || exit 1; echo "ok $$f"; done
 
 ## e2e - run the browser end-to-end test in a fresh holodeck profile
 e2e:

@@ -13,7 +13,11 @@ Vanilla JavaScript, Manifest V3, no build step, no dependencies, no server. Noth
 
 ## What it does
 
-- **One note per page, many dated entries.** Click the toolbar icon on any page and type. It saves as you type; there is no Save button. Each day you write becomes a dated entry, and earlier entries edit in place with a click. The toolbar icon shows how many entries the current page has.
+- **One note per page, many dated entries.** Click the toolbar icon on any page and type. It saves as you type; there is no Save button. Each day you write becomes a dated entry, and earlier entries edit in place with a click. A red toolbar badge counts entries and stickies on the current page; the sidebar highlights saved notes when you return.
+- **Browse your notebook.** All notes is a Sites → Pages → Notes explorer, with three columns on a wide screen and one level at a time in the sidebar. Across all sites, pages are listed by site. Navigation is a hierarchy: the back arrow beside the sidebar's page title goes up to that site's saved pages, the arrow in the library climbs one more level and disappears at the top, and a breadcrumb jumps to any ancestor. "Current page" in the footer returns to the page you are on. Preview dated entries, stickies and captures, then explicitly open a page when you need it.
+- **Link pages across sites.** Connect any saved page to any other when it makes sense to you: your GitHub profile to your LinkedIn, a ticket to its pull request. "+ Link" opens a type-to-find picker over your saved pages; linked pages show on both sides with their site, open in a click, and are carried in the Markdown frontmatter by canonical key so export and import keep them. Nothing is linked for you.
+- **Open it your way.** In Settings, choose what the toolbar icon does: a popup next to the icon, a docked sidebar that follows the active tab and closes with its ✕ or another click on the icon, or a floating button on the page itself. The floating button and the window it opens can both be dragged anywhere and remember where you left them; the window is the extension's own page in a frame, so the site around it can neither read nor restyle your notes.
+- **Stickies on the page.** Pin warm paper-style comments to page elements. The on-page control and popup's Show/Hide all button toggle stickies across open tabs; visibility is remembered after a reload. Adding or jumping to a sticky shows them again. Quotes and comments can be copied as a numbered feedback list.
 - **The note follows the page.** A pull request and its Files tab, a Jira issue and its board link, a LinkedIn profile and its Experience page, a Google Doc in edit and view mode: one note. Nineteen built-in identity rules, the same engine as [Organize Tabs](https://github.com/hacktoolkit/organize-tabs-chrome-extension), editable with a live tester.
 - **Capture a quote.** Select text, right-click, "Add selection to this page's note".
 - **Remind me.** One click under the editor: in an hour, tonight, tomorrow, next week, or pick a time. The page reopens with a notification.
@@ -22,7 +26,7 @@ Vanilla JavaScript, Manifest V3, no build step, no dependencies, no server. Noth
 - **Changed since your last visit.** When a page differs from its previous capture, the popup says so and the note's detail page shows the added and removed lines.
 - **Profile insights.** On a LinkedIn profile the capture is parsed into a work history, and the extension points out what a careful reader would ask about: two full-time roles that overlap, two current full-time roles, dates that run backwards, short stints, long gaps. It also summarises years of experience, employers and average tenure, and builds a one-line card grouped by employer with promotions in order, ready to copy. Edits to the history between visits, such as an end date that moved, are called out separately. These are prompts for a conversation, never verdicts.
 - **Markdown export.** Every note is a `.md` file with YAML frontmatter. Download them all as a zip, which also carries every capture as plain text under `captures/`, import notes back, or connect an Obsidian vault folder and have every save written straight into it. The vault connection uses the File System Access API, which Chrome and Edge have on by default; Brave turns it off, and the settings page shows the flag to enable it.
-- **Search** across titles, URLs, tags and entries.
+- **Search** across titles, URLs, tags, entries, sticky comments and their quoted text, and a type-to-find picker wherever you choose a page. Previously saved LinkedIn titles automatically lose leading unread-message counts; historical captures and note dates are preserved.
 
 ## The note format
 
@@ -53,7 +57,7 @@ Likes cheese. Two kids, dog named Fluffy.
 
 ## Privacy
 
-Everything is stored in your browser profile with `chrome.storage.local`. No network requests, no accounts, no analytics. The in-page sticky layer is injected only when you click the icon or add a sticky on that page; the one exception is a site where you turned on "Always show stickies", which asks the browser for permission on that site alone. A page is captured only when you act on it, saving a note or opening the popup there, using the `activeTab` grant that your click provides, and the capture never leaves the browser. There are no background content scripts and nothing runs on pages you merely visit. Export and the Obsidian vault connection write files only where you choose.
+Everything is stored in your browser profile with `chrome.storage.local`. No network requests, no accounts, no analytics. The in-page layer (sticky pins, and the floating button in that launch mode) is injected only when you click the icon or add a sticky on that page; the one exception is a site where you turned on "Always show stickies", which asks the browser for permission on that site alone. A page is captured only when you act on it, saving a note or opening the popup there, using the `activeTab` grant that your click provides, and the capture never leaves the browser. There are no background content scripts and nothing runs on pages you merely visit. Export and the Obsidian vault connection write files only where you choose.
 
 Profile insights are computed locally from the text you captured, phrased as questions, and never make inferences about protected characteristics. Overlapping dates have ordinary explanations; the point is to know what to ask.
 
@@ -84,6 +88,8 @@ src/popup.*            the note for the current page
 src/options.*          all notes, reminders, backup and vault, settings, help
 src/note.*             one note in full: insights, changes, entries, captures
 src/lib/ui.js          shared DOM and messaging helpers for the three pages
+src/lib/explorer.js    shared saved-page explorer for All notes and the sidebar
+src/explorer.css       responsive columns and accordion layout
 scripts/screenshots.mjs README images and 1280x800 store screenshots (make screenshots)
 STORE_LISTING.md       Chrome Web Store copy, permission justifications, privacy answers
 scripts/e2e.mjs        headless browser suite

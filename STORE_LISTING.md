@@ -23,7 +23,7 @@ Paste-ready copy for the dashboard. Plain-text copies are in `promo/store/`. The
 | Permission | Justification |
 | --- | --- |
 | `tabs` | Read the current tab's URL and title to attach a note to the page, show a count on the toolbar icon, and reopen a page when a reminder fires or a snoozed tab is due. |
-| `activeTab` and `scripting` | When the user opens the popup or adds a sticky on a page, read that page's title, metadata and visible text so the note keeps a local record of what the user saw, and show the sticky layer (pins and comments) on that page. Runs only on the user's click, on that tab, never in the background. |
+| `activeTab` and `scripting` | When the user opens the popup or adds a sticky on a page, read that page's title, metadata and visible text so the note keeps a local record of what the user saw, and show the in-page layer on that page: sticky pins and comments, and, if the user chose the "on the page" launch mode, a floating button that opens the note in a frame. Runs only on the user's click, on that tab, never in the background. |
 | `storage` and `unlimitedStorage` | Notes and page captures are stored locally in the browser profile; captures of long pages can exceed the default quota. Settings sync with the profile. |
 | `alarms` | Fire reminders and reopen snoozed tabs at the time the user chose. |
 | `notifications` | Show the reminder when it fires. |

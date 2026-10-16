@@ -4,11 +4,58 @@ Written 2026-10-15 for the next agent or person picking this up. Read `AGENTS.md
 
 ## Where things stand
 
-- **Branch:** `feature/v1-rewrite`, 19 commits ahead of `master`, all pushed. **PR #22** is open and up to date: https://github.com/hacktoolkit/notes-chrome-extension/pull/22
-- **CI:** green on the latest commit (unit tests on Node 22 and 24, headless e2e on Chrome for Testing, packaged zip artifact).
-- **Tests:** 54 unit tests (`make test`), 61 e2e checks (`make e2e`), both green locally and in CI.
+- **Branch:** `feature/v1-rewrite`. At the original handoff, 19 commits ahead of `master`, all pushed, with **PR #22** open: https://github.com/hacktoolkit/notes-chrome-extension/pull/22. The continuation below adds local, uncommitted changes.
+- **CI:** green at the original handoff (unit tests on Node 22 and 24, headless e2e on Chrome for Testing, packaged zip artifact). Not rerun remotely for the local continuation.
+- **Tests:** 57 unit tests (`make test`), 94 e2e checks (`make e2e`), both green locally after the continuations. Syntax checks (`make check`, now including content scripts) also pass.
 - **Nothing is published.** `master` is still the 2021 Manifest V2 "URL Notes" app, which no longer loads. The store listing kit (`STORE_LISTING.md`, `promo/store/`) is ready but unused.
 - The owner (Jonathan) has loaded the branch unpacked in Brave and used it. Feedback so far has all been folded in.
+
+## Continuation: popup and side-panel reliability
+
+Code review found that automatic panel refreshes used the same capture-enabled request as a popup opening, and pending drafts relied on a tab's current URL even after navigation. Fixed in `src/popup.js`:
+
+- Only the initial popup lookup requests a capture. Panel navigation and storage refreshes explicitly pass `capture: false`; the toolbar-click service-worker handler still captures for the panel.
+- Drafts carry the displayed page's URL and title, which the worker resolves through the existing canonical identity rules. Saves wait for any in-flight draft and drain newer text before changing pages.
+- A failed save leaves the text dirty so blur can retry it. Actions that depend on saving stop on a failed save.
+- Refresh responses are versioned so a late result cannot replace a newer page. Typing during a lookup is preserved. Panel events are scoped to its window and current note.
+- Eleven additional browser checks cover passive captures, save failure and retry, navigation with a held save response, and out-of-order page lookups. Browser tests ran with `HOLODECK=/private/tmp/page-notes-holodeck` and blocked external DNS, using only the existing text fixtures.
+
+This continuation did not publish or update the remote PR.
+
+## Continuation: explorer, stickies and saved-page cues (2026-10-16)
+
+Implemented the owner's screenshot feedback, also local and uncommitted:
+
+- `src/lib/explorer.js` and `src/explorer.css` provide a shared Sites → Pages → Notes browser. All notes uses columns at wider sizes; the sidebar uses collapsible site/page groups and an inline preview of dated entries, stickies and captures. Search includes sticky text and quoted anchors. Selection does not open tabs; Open page and Full details are explicit actions sent to the worker via `openNote`.
+- The sidebar has a back arrow beside the title to browse saved pages, and a return-to-current-page control. Opening the panel on a browser/extension page starts in the library. Full details now includes stickies too.
+- Warm paper colors, folded-corner pins and a persistent on-page control distinguish stickies. `stickyVisibility` stores a global local preference and broadcasts show/hide changes to existing layers; no new host permissions or passive injection. Picking or jumping to a sticky reveals the layer again. Hiding flushes an open sticky's pending edit. The sidebar empty-sticky hint now spans the full row.
+- Red toolbar badges count entries plus stickies, with a descriptive tooltip. Capture-only pages keep a neutral dot. The popup/sidebar shows a saved-note banner with a brief arrival highlight that respects reduced motion.
+- A one-time service-worker startup migration cleans unread counters from existing LinkedIn note titles and index rows. It preserves canonical identity, timestamps, entries and original capture titles. Tests cover the transformation and storage migration.
+- Validation: 57 unit tests, 94 e2e checks, syntax checks and whitespace checks passed. Light/dark and narrow/wide previews were inspected. To regenerate them: `HOLODECK=/private/tmp/page-notes-holodeck E2E_SCREENSHOTS=/private/tmp/page-notes-preview make e2e`.
+
+Reload the unpacked extension and refresh existing page tabs to pick up the new in-page layer. Naming, release, drag/selection anchoring and shared review remain open.
+
+## Continuation: hierarchical back, sidebar close, launch modes (2026-10-16)
+
+Owner feedback from use: the sidebar back arrow looped, and the docked sidebar could not be dismissed. Also local and uncommitted:
+
+- **Back is a hierarchy, never a toggle.** `src/lib/explorer.js` tracks a level (0 sites, 1 pages of a site, 2 a page) exposed through `root.dataset.level`, with `up()`, `focus({ host, id })`, `depth()` and an `onNavigate` callback. The narrow layout shows one level at a time; the wide one keeps three columns. The trail is a breadcrumb of buttons. In the sidebar the header arrow lands on the current site's page list, the library arrow climbs one level and hides at the top, and returning to the page is a separate footer action (`#return-to-page`). "All notes" in the footer goes to the root.
+- **Sidebar close.** `#close-view` in the panel header and library header calls `window.close()`, which closes the side panel. In sidebar mode the worker now clears the action popup (`chrome.action.setPopup({ popup: '' })`) so the icon toggles the panel; a popup would otherwise take the click. Esc does not close the panel (a stray Esc while writing must not), only the popup and the widget.
+- **Launch modes.** `settings.launch` is `'popup' | 'sidebar' | 'floating'` (`LAUNCH_MODES` in `settings.js`); `openInSidePanel: true` migrates to `'sidebar'` in `mergeSettings`. `applyLaunchMode()` in the worker sets the popup and the side panel behaviour; `chrome.action.onClicked` captures the page and, in floating mode, injects the layer and sends `pn:widget`. On browser or extension pages in floating mode it opens the side panel instead. Options has a three-way card selector.
+- **Floating widget** in `src/content/layer.js`: a draggable `.fab` (icon, sticky count) and a draggable `.widget` window holding an iframe of `src/panel.html?embed=1`, both in the shadow root, positions remembered through the worker message `widgetLayout` (`widget:layout` in storage.local). The page cannot see into the frame. Clicking the icon again toggles the widget; Esc on the page or in the frame closes it; the frame asks the layer to close with `postMessage({ type: 'pn:widget-close' })`, accepted only from the frame's window and the extension origin. `src/panel.html` and `img/icon32.png` are web-accessible for this.
+- **Embed mode in `popup.js`:** `EMBED` from the query string, body gets `embed`; bound to `chrome.tabs.getCurrent()`, follows in-page navigations of that tab, never captures (the worker did on the click), and `dismiss()` replaces `window.close()`.
+- **Owner reported floating mode not working** after the above. The in-page mechanism was verified in a real headless Brave (a patched copy of the extension with a host permission on the fixture standing in for the activeTab grant; see the approach in the scratch script described here: inject, send `pn:widget`, probe the shadow root, connect to the frame target): the button appears, the frame loads the embedded panel bound to the tab, a second click closes it, and a `frame-src 'none'` CSP does not block the frame. Two upstream causes were fixed: `annotate.js` reused a layer orphaned by an extension reload (its `chrome.runtime.id` is gone, so the worker could never reach it); it now asks `alive()` and reboots, and `boot()` removes stale hosts. And the side panel fallback for non-web pages lost the click gesture behind `await loadSettings()`; the mode is now cached in the worker (`launchMode`, warmed at every worker start) and `chrome.sidePanel.open` is called synchronously. A failed launch marks the tab's badge with `!` and explains in the icon tooltip. If it still fails for the owner, ask which page and whether the badge showed `!`.
+- **Pages listed by site.** Across all sites the page list has a heading per site, sorted by host; the column label and the sidebar library header name the level (All notes with counts, the site, or the page and its site).
+
+## Continuation: linked pages (2026-10-16)
+
+Owner's ask: link any page to any other across sites (GitHub profile to LinkedIn profile), with a type-search-filter widget over the pages with notes. Local and uncommitted:
+
+- **Model** (`notes.js`): `note.links` is a list of the other pages' canonical keys, symmetric, written on both notes by `linkNotes` / `unlinkNotes` (pure, tested). Keys resolve to ids with `noteId(key)`, so the frontmatter line `links: [github:user:jontsai]` round-trips and survives import; `mergeNotes` unions links; `indexEntry` carries a `links` count. `store.js` keeps a note that only holds a link (a note is "empty" only without entries, reminder, captures, stickies and links).
+- **Worker**: `link` (`{ id | url | tabId, otherId }`, creating the note for a never-noted page), `unlink`, `links` (resolved index rows, a deleted other side comes back as `missing` with its key), `current` returns `linked`, `deleteNote` removes the page from the pages it was linked to. Each has e2e checks.
+- **Picker** (`src/lib/picker.js`): `createPagePicker({ exclude, onPick, onClose })`, a combobox over the index: loads once, filters on every typed word across title, site, URL and the latest note (`matchRows`, tested), arrows/Enter/Esc, mouse. Esc stops propagation so it does not close the popup or widget. Used in the popup/sidebar "Linked pages" section (`#add-link`), the explorer preview ("+ Link a page") and nowhere else yet; it is the widget to reuse for any choose-a-page need.
+- **UI**: "Linked pages" card in popup, sidebar and widget; click a linked page to show it in the library (sidebar) or open its details (popup), ↗ opens the page, ✕ unlinks. The explorer preview lists links and navigates to them (`explorer.show(id)`); the details page lists them read-only. Obsidian-style `[[wikilinks]]` in the Markdown body would be a natural follow-up; keys in frontmatter were chosen to keep the round-trip lossless.
+- Tests: 61 unit, 144 e2e checks (launch modes and the popup/behaviour pair, legacy migration, `widgetLayout`, the embedded page's Esc, the layer's button and window including drag by synthetic pointer events, and the sidebar's hierarchical navigation and close control).
 
 ## What it is
 
@@ -39,7 +86,7 @@ A Manifest V3 extension, vanilla JavaScript, no build step, no dependencies, no 
 1. The name (above).
 2. Merge and release: tag `v1.0.0`, GitHub Release with the CI zip, bump the submodule in hacktoolkit/chrome-extensions, upload to the Chrome Web Store using `STORE_LISTING.md`. Permissions that will draw review questions: `scripting`, `notifications`, `unlimitedStorage`, `sidePanel`, and the optional host permissions; justifications are in the kit.
 3. Stickies polish once used for real: drag to reposition, a sticky on a text selection rather than a whole element, export to a shareable page.
-4. Options page is a solid settings page, not yet a designed one. Empty states are plain.
+4. Options now has a responsive saved-page explorer; the remaining settings sections still use the original card layout.
 5. A second site parser (GitHub profile, Crunchbase) would follow the `extractorFor` pattern in `src/lib/profile.js`, fixture first.
 
 ## How to work on it
