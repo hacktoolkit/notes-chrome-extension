@@ -1,13 +1,63 @@
 // The popup shows the note for the current page and sends every change to the
-// service worker.
+// service worker. The same page runs three ways: as the popup (bound to the
+// tab it opened on), as the side panel (follows its window's active tab) and
+// embedded in the floating widget on a page (bound to that tab, closes by
+// asking the layer around it).
 
 const $ = (sel) => document.querySelector(sel);
 import { el, fmt, send } from './lib/ui.js';
+import { createExplorer } from './lib/explorer.js';
+import { createPagePicker } from './lib/picker.js';
+import { cleanTitle } from './lib/notes.js';
 const APP_NAME = chrome.runtime.getManifest().name;
+const EMBED = new URLSearchParams(location.search).has('embed');
+if (EMBED) document.body.classList.add('embed');
 const PANEL = document.body.classList.contains('panel');
+let ownTabId = null; // the tab the embedded widget sits in
 let current = null; // { tab, ident, note, insights, today }
 let draftTimer = null;
 let lastSentText = null;
+let draftPromise = null;
+let refreshVersion = 0;
+let library = null;
+let libraryVisible = false;
+let noticedPage = null;
+
+// The library sits above the page in the hierarchy: Sites > Pages > this page.
+// Going back from the page lands on its site's page list; the arrow inside
+// the library climbs one level and disappears at the top. Returning to the
+// current page is a separate, forward action in the footer.
+async function showLibrary(show = true, { root = false } = {}) {
+    if (!PANEL || !await flushDraft()) return;
+    libraryVisible = show;
+    document.body.classList.toggle('browsing', show);
+    $('#open-all').hidden = show;
+    $('#return-to-page').hidden = !show;
+    $('.head').hidden = show;
+    $('main').hidden = show;
+    $('#library').hidden = !show;
+    if (show) {
+        library ||= createExplorer($('#library-explorer'), { onNavigate: (depth, where) => {
+            // the library header names the level: all notes, a site, a page
+            $('#library-up').hidden = depth === 0;
+            const h2 = $('#library-title'), sub = $('#library-sub');
+            const pages = (n) => `${n} saved page${n === 1 ? '' : 's'}`;
+            if (depth === 0) { h2.textContent = 'All notes'; sub.textContent = where.sites ? `${pages(where.pages)} across ${where.sites} site${where.sites === 1 ? '' : 's'}` : 'Your pages, together.'; }
+            else if (depth === 1) { h2.textContent = where.host || 'All pages'; sub.textContent = where.host ? pages(where.pages) : `${pages(where.pages)}, listed by site`; }
+            else { h2.textContent = where.title || 'Saved page'; sub.textContent = where.site || where.host || 'Saved page'; }
+        } });
+        await library.reload();
+        const host = current?.note?.host || (current?.tab?.url && /^https?:/.test(current.tab.url) ? new URL(current.tab.url).hostname.replace(/^www\./, '') : '');
+        library.focus(root ? {} : { host, id: current?.ident?.id });
+        $('#library-explorer input[type="search"]').focus();
+    } else await refresh({ capture: false });
+}
+
+// Close this view: the popup window, the side panel, or the widget around us.
+function dismiss() {
+    if (EMBED) window.parent.postMessage({ type: 'pn:widget-close' }, '*');
+    else window.close();
+}
 
 let toastTimer;
 function toast(msg, error = false) {
@@ -76,6 +126,10 @@ function renderStickies() {
     const list = $('#sticky-list');
     list.innerHTML = '';
     const stickies = note?.stickies || [];
+    $('#toggle-stickies').hidden = stickies.length === 0;
+    $('#toggle-stickies').textContent = current.stickiesVisible === false ? 'Show all' : 'Hide all';
+    $('#toggle-stickies').setAttribute('aria-pressed', String(current.stickiesVisible !== false));
+    $('#toggle-stickies').title = 'Show or hide stickies on all pages';
     $('#copy-feedback').hidden = stickies.length === 0;
     if (stickies.length === 0) {
         list.append(el('li', { class: 'empty-row', text: 'Pin a comment to any part of this page.' }));
@@ -87,7 +141,7 @@ function renderStickies() {
             el('span', {}, [el('div', { class: 'q', text: quote }), el('div', { class: `t${st.text ? '' : ' empty'}`, text: st.text || 'No comment yet' })]),
             el('button', { class: 'x', text: '✕', title: 'Remove', onclick: async (e) => { e.stopPropagation(); await send('stickyRemove', { url: tab.url, id: st.id }); await refresh({ keepEditor: true }); } })
         ]);
-        li.addEventListener('click', async () => { try { await send('annotate', { tabId: tab.id, scrollTo: st.id }); if (!PANEL) window.close(); } catch (e) { toast(e.message, true); } });
+        li.addEventListener('click', async () => { try { await send('annotate', { tabId: tab.id, scrollTo: st.id }); if (!PANEL || EMBED) dismiss(); } catch (e) { toast(e.message, true); } });
         list.append(li);
     });
     const always = $('#always-show');
@@ -96,6 +150,67 @@ function renderStickies() {
         $('#always-origin').textContent = alwaysShow.origin.replace(/^https?:\/\//, '');
         $('#always-show-toggle').checked = !!alwaysShow.enabled;
     }
+}
+
+// Linked pages: connections the user drew between pages, across sites.
+let picker = null;
+function renderLinked() {
+    const { tab, linked = [], note } = current || {};
+    const box = $('#linked');
+    const web = tab && /^(https?|file):/.test(tab.url || '');
+    box.hidden = !web;
+    if (!web) return;
+    const list = $('#linked-list');
+    list.innerHTML = '';
+    if (!linked.length && !picker) list.append(el('li', { class: 'empty-row', text: 'Connect this page to another saved page, on any site: your GitHub profile to your LinkedIn, a ticket to its pull request.' }));
+    for (const row of linked) {
+        const li = el('li', { class: row.missing ? 'missing' : '', title: row.missing ? 'That page\'s note is gone' : (PANEL ? 'Show its notes' : 'Open the page') }, [
+            el('span', { class: 'host', text: row.host || '·' }),
+            el('span', { class: 'title', text: cleanTitle(row.title) || row.url || row.key }),
+            el('button', { class: 'go', text: '↗', title: 'Open the page', 'aria-label': 'Open the page', hidden: row.missing || !row.url, onclick: async (e) => { e.stopPropagation(); try { await send('openNote', { id: row.id, page: true }); if (!PANEL || EMBED) dismiss(); } catch (err) { toast(err.message, true); } } }),
+            el('button', { class: 'x', text: '✕', title: 'Unlink', 'aria-label': 'Unlink', onclick: async (e) => { e.stopPropagation(); try { const r = await send('unlink', { id: note.id, otherId: row.id }); current = { ...current, note: r.note, linked: r.linked }; renderLinked(); } catch (err) { toast(err.message, true); } } })
+        ]);
+        if (!row.missing) li.addEventListener('click', async () => {
+            try {
+                if (PANEL) { await showLibrary(true); library.show(row.id); }
+                else await send('openNote', { id: row.id });
+            } catch (err) { toast(err.message, true); }
+        });
+        list.append(li);
+    }
+}
+function openLinkPicker() {
+    if (picker) { picker.focus(); return; }
+    const holder = $('#link-picker');
+    const exclude = new Set([current?.ident?.id, ...(current?.linked || []).map((r) => r.id)].filter(Boolean));
+    picker = createPagePicker({
+        exclude,
+        placeholder: 'Type to find a page to link…',
+        onPick: async (row) => {
+            closeLinkPicker();
+            try {
+                if (!await flushDraft()) return;
+                const r = await send('link', { ...(current.note ? { id: current.note.id } : { tabId: current.tab.id, url: current.tab.url, title: current.tab.title }), otherId: row.id });
+                current = { ...current, note: r.note, linked: r.linked };
+                toast(`Linked to ${cleanTitle(row.title)}`);
+                await refresh({ keepEditor: true, capture: false });
+            } catch (err) { toast(err.message, true); }
+        },
+        onClose: closeLinkPicker
+    });
+    holder.replaceChildren(picker.root);
+    holder.hidden = false;
+    $('#add-link').setAttribute('aria-expanded', 'true');
+    renderLinked();
+    picker.focus();
+}
+function closeLinkPicker() {
+    if (!picker) return;
+    picker = null;
+    $('#link-picker').hidden = true;
+    $('#link-picker').replaceChildren();
+    $('#add-link').setAttribute('aria-expanded', 'false');
+    renderLinked();
 }
 
 function openDetail() {
@@ -111,7 +226,7 @@ function render({ keepEditor = false } = {}) {
     $('#compose').hidden = !tab;
     $('#insights').hidden = !tab;
     $('#entries').hidden = !tab;
-    $('#page-title').textContent = tab ? (note?.title || tab.title || tab.url) : APP_NAME;
+    $('#page-title').textContent = tab ? cleanTitle(note?.title || tab.title || tab.url) : APP_NAME;
     $('#page-url').textContent = tab ? tab.url.replace(/^https?:\/\//, '') : '';
     const fav = $('#fav');
     fav.src = tab?.favIconUrl && !tab.favIconUrl.startsWith('chrome://') ? tab.favIconUrl : '../img/icon32.png';
@@ -121,6 +236,16 @@ function render({ keepEditor = false } = {}) {
     rule.title = ident ? `This note follows the page: ${ident.key}` : '';
     $('#open-detail').hidden = !note;
     if (PANEL) $('#capture-hint').hidden = !tab || !!(note && note.snapshots && note.snapshots.length) || !/^https?:/.test(tab.url || '');
+
+    const savedCount = (note?.entries.length || 0) + (note?.stickies?.length || 0);
+    const savedHere = $('#saved-here');
+    savedHere.hidden = !tab || !savedCount;
+    savedHere.textContent = `${savedCount} saved note${savedCount === 1 ? '' : 's'} on this page`;
+    if (noticedPage !== ident?.id) {
+        savedHere.classList.remove('arrived');
+        if (savedCount) { void savedHere.offsetWidth; savedHere.classList.add('arrived'); }
+        noticedPage = ident?.id;
+    }
 
     // the editor holds today's entry
     const editor = $('#entry');
@@ -139,6 +264,7 @@ function render({ keepEditor = false } = {}) {
 
     renderInsights(current?.insights);
     renderStickies();
+    renderLinked();
 
     const list = $('#entries');
     list.innerHTML = '';
@@ -155,15 +281,29 @@ function render({ keepEditor = false } = {}) {
     if (entries.length > 0) list.append(el('li', { class: 'hint', text: 'Click an entry to edit it. Changes save as you type.' }));
 }
 
-async function refresh(opts) {
+async function refresh({ keepEditor = false, capture = false } = {}) {
+    const version = ++refreshVersion;
+    if (!await flushDraft() || version !== refreshVersion) return;
     try {
         // the popup is bound to the tab it opened on; the panel follows the active tab
-        current = await send('current', PANEL ? { windowId: (await chrome.windows.getCurrent()).id } : { tabId: current?.tab?.id });
+        const args = EMBED ? { tabId: ownTabId } : PANEL ? { windowId: (await chrome.windows.getCurrent()).id } : { tabId: current?.tab?.id };
+        const editorText = $('#entry').value;
+        const next = await send('current', { ...args, capture });
+        if (version !== refreshVersion) return;
+        const samePage = current?.ident?.id === next.ident?.id;
+        // Typing can continue while the page lookup is in flight. Save it to
+        // the old page before replacing the editor on a navigation.
+        if (!samePage && !await flushDraft()) return;
+        if (version !== refreshVersion) return;
+        keepEditor = samePage && (keepEditor || !!draftPromise || $('#entry').value !== lastSentText || $('#entry').value !== editorText);
+        current = next;
+        if (!samePage) setStatus('');
     } catch (e) {
-        current = null;
+        if (version !== refreshVersion) return;
         toast(e.message, true);
+        return;
     }
-    render(opts);
+    render({ keepEditor });
 }
 
 // ----- autosave: the editor is today's entry --------------------
@@ -178,17 +318,35 @@ function scheduleDraft() {
 
 async function flushDraft() {
     clearTimeout(draftTimer);
-    const text = $('#entry').value;
-    if (text === lastSentText || !current?.tab) return;
-    lastSentText = text;
-    try {
-        const r = await send('draft', { tabId: current.tab.id, text });
-        current = { ...current, note: r.note, today: r.today };
-        setStatus(text.trim() ? `Saved ${fmt(new Date().toISOString()).slice(11)}` : '', 'saved');
-        render({ keepEditor: true });
-    } catch (e) {
-        setStatus(e.message, 'error');
+    // Blur, navigation and the debounce timer can all request the same save.
+    // Await it, then drain any text typed while it was in flight.
+    if (draftPromise) {
+        if (!await draftPromise) return false;
+        return flushDraft();
     }
+    const text = $('#entry').value;
+    if (text === lastSentText || !current?.tab) return true;
+    const { tab, ident } = current;
+    draftPromise = (async () => {
+        try {
+            // The tab may already have navigated or closed. The displayed
+            // URL still identifies the note this editor belongs to.
+            const r = await send('draft', { tabId: tab.id, url: tab.url, title: current.note?.title || tab.title, text });
+            if (current?.ident?.id === ident?.id) {
+                lastSentText = text;
+                current = { ...current, note: r.note, today: r.today };
+                if ($('#entry').value === text) setStatus(text.trim() ? `Saved ${fmt(new Date().toISOString()).slice(11)}` : '', 'saved');
+                render({ keepEditor: true });
+            }
+            return true;
+        } catch (e) {
+            setStatus(e.message, 'error');
+            return false;
+        }
+    })();
+    const saved = await draftPromise;
+    draftPromise = null;
+    return saved ? flushDraft() : false;
 }
 
 // ----- older entries: edit in place --------------------
@@ -222,7 +380,7 @@ async function removeEntry(index) {
 
 async function setReminder({ preset, when }) {
     try {
-        await flushDraft();
+        if (!await flushDraft()) return;
         if (!current.note || current.note.entries.length === 0) {
             // a reminder needs something to come back to
             const r = await send('draft', { tabId: current.tab.id, text: $('#entry').value.trim() || 'Reminder set.' });
@@ -236,9 +394,9 @@ async function setReminder({ preset, when }) {
 
 async function snoozeTab() {
     try {
-        await flushDraft();
+        if (!await flushDraft()) return;
         await send('snoozeTab', { tabId: current.tab.id, preset: 'tomorrow' });
-        window.close();
+        if (!PANEL || EMBED) dismiss();
     } catch (e) { toast(e.message, true); }
 }
 
@@ -251,11 +409,21 @@ function init() {
     document.querySelectorAll('#chips .chip[data-preset]').forEach((b) => b.addEventListener('click', () => setReminder({ preset: b.dataset.preset })));
     $('#remind-at').addEventListener('change', (e) => { if (e.target.value) setReminder({ when: new Date(e.target.value).toISOString() }); });
     $('#snooze').addEventListener('click', snoozeTab);
+    $('#toggle-stickies').addEventListener('click', async () => {
+        try {
+            const visible = current.stickiesVisible === false;
+            await send('stickyVisibility', { visible });
+            current.stickiesVisible = visible;
+            renderStickies();
+            if (visible) await send('annotate', { tabId: current.tab.id });
+        } catch (e) { toast(e.message, true); }
+    });
+    $('#add-link').addEventListener('click', () => { if (picker) closeLinkPicker(); else openLinkPicker(); });
     $('#add-sticky').addEventListener('click', async () => {
         try {
-            await flushDraft();
+            if (!await flushDraft()) return;
             await send('annotate', { tabId: current.tab.id, pick: true });
-            if (!PANEL) window.close();
+            if (!PANEL || EMBED) dismiss();
         } catch (e) { toast(e.message, true); }
     });
     $('#copy-feedback').addEventListener('click', async () => {
@@ -277,30 +445,62 @@ function init() {
             toast(r.enabled ? `Stickies will show on ${r.origin.replace(/^https?:\/\//, '')}` : 'Turned off for this site');
         } catch (err) { e.target.checked = !e.target.checked; toast(err.message, true); }
     });
-    $('#open-all').addEventListener('click', (e) => { e.preventDefault(); chrome.tabs.create({ url: chrome.runtime.getURL('src/options.html#notes') }); });
+    // "All notes" is the root of the hierarchy; the header arrow is one level up
+    $('#open-all').addEventListener('click', (e) => { e.preventDefault(); if (PANEL) showLibrary(true, { root: true }); else chrome.tabs.create({ url: chrome.runtime.getURL('src/options.html#notes') }); });
     $('#open-options').addEventListener('click', (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); });
     $('#open-detail').addEventListener('click', (e) => { e.preventDefault(); openDetail(); });
-    if (!PANEL) {
-        $('#open-panel').addEventListener('click', async (e) => {
-            e.preventDefault();
-            await flushDraft();
-            try {
-                const w = await chrome.windows.getLastFocused();
-                await chrome.sidePanel.open({ windowId: w.id });
-                window.close();
-            } catch (err) { toast(err.message, true); }
-        });
-        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { flushDraft().then(() => window.close()); } });
-    } else {
-        // follow the active tab: save what is being typed, then show the new page
-        let switchTimer = null;
-        const follow = () => { clearTimeout(switchTimer); switchTimer = setTimeout(async () => { await flushDraft(); await refresh(); }, 150); };
-        chrome.tabs.onActivated.addListener(async ({ windowId }) => { if (windowId === (await chrome.windows.getCurrent()).id) follow(); });
-        chrome.tabs.onUpdated.addListener((tabId, info, tab) => { if (tab.active && (info.url || info.status === 'complete')) follow(); });
-        chrome.windows.onFocusChanged.addListener((id) => { if (id !== chrome.windows.WINDOW_ID_NONE) follow(); });
-        // a note saved from the popup or context menu shows up here too
-        chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && Object.keys(changes).some((k) => k.startsWith('note:'))) refresh({ keepEditor: document.activeElement === editor }); });
+    const openPanel = async (e) => {
+        e.preventDefault();
+        if (!await flushDraft()) return;
+        try {
+            const w = await chrome.windows.getLastFocused();
+            await chrome.sidePanel.open({ windowId: w.id });
+            dismiss();
+        } catch (err) { toast(err.message, true); }
+    };
+    $('#open-panel')?.addEventListener('click', openPanel);
+    for (const id of ['#close-view', '#close-view-library']) $(id)?.addEventListener('click', async () => { if (await flushDraft()) dismiss(); });
+    if (!PANEL || EMBED) {
+        // Esc closes the popup and the widget. The side panel stays: a stray
+        // Esc while writing must not take the whole panel away.
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { flushDraft().then((saved) => { if (saved) dismiss(); }); } });
     }
-    refresh().then(() => { editor.focus(); editor.setSelectionRange(editor.value.length, editor.value.length); });
+    if (PANEL) {
+        $('#browse-notes').addEventListener('click', () => showLibrary());
+        $('#library-up').addEventListener('click', () => { library?.up(); });
+        $('#return-to-page').addEventListener('click', (e) => { e.preventDefault(); showLibrary(false); });
+        const windowId = async () => (await chrome.windows.getCurrent()).id;
+        let switchTimer = null;
+        const follow = () => { clearTimeout(switchTimer); switchTimer = setTimeout(() => refresh({ capture: false }), 150); };
+        if (EMBED) {
+            // bound to the tab around us; follow in-page navigations (pushState) of that tab
+            chrome.tabs.onUpdated.addListener((tabId, info) => { if (tabId === ownTabId && (info.url || info.status === 'complete')) follow(); });
+            window.addEventListener('message', (e) => {
+                if (e.source !== window.parent || e.data?.type !== 'pn:shown') return;
+                refresh({ capture: false }).then(() => { if (!libraryVisible) editor.focus(); });
+            });
+        } else {
+            // follow the active tab: save what is being typed, then show the new page
+            chrome.tabs.onActivated.addListener(async (info) => { if (info.windowId === await windowId()) follow(); });
+            chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => { if (tab.active && (info.url || info.status === 'complete') && tab.windowId === await windowId()) follow(); });
+        }
+        // a note saved from the popup, the page or the context menu shows up here too
+        let libraryTimer;
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area !== 'local') return;
+            if (current?.ident && changes[`note:${current.ident.id}`]) refresh({ keepEditor: document.activeElement === editor, capture: false });
+            if (changes['stickies:visible'] && current) { current.stickiesVisible = changes['stickies:visible'].newValue !== false; renderStickies(); }
+            if (libraryVisible && changes['notes:index']) { clearTimeout(libraryTimer); libraryTimer = setTimeout(() => library.reload(), 150); }
+        });
+    }
+    // The popup's open is the user's click on this tab: capture now. The panel
+    // and the widget were opened by the worker, which already captured.
+    const start = async () => {
+        if (EMBED) ownTabId = (await chrome.tabs.getCurrent())?.id || (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id || null;
+        await refresh({ capture: !PANEL });
+        if (PANEL && !/^(https?|file):/.test(current?.tab?.url || '')) showLibrary();
+        else { editor.focus(); editor.setSelectionRange(editor.value.length, editor.value.length); }
+    };
+    start();
 }
 init();

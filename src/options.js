@@ -1,11 +1,13 @@
 import { DEFAULTS, loadSettings, saveSettings } from './lib/settings.js';
 import { canonicalize, compileRules, normalizeUrl } from './lib/url.js';
 import { clearVaultHandle, loadVaultHandle, saveVaultHandle } from './lib/store.js';
+import { createExplorer } from './lib/explorer.js';
 
 const $ = (sel) => document.querySelector(sel);
 import { el, fmt, send } from './lib/ui.js';
 const APP_NAME = chrome.runtime.getManifest().name;
 let settings = {};
+let explorer;
 
 function setState(text) { $('#save-state').textContent = text; }
 
@@ -28,12 +30,11 @@ function noteRow(r, { showRemind = false } = {}) {
 }
 
 async function renderLists() {
-    const rows = await send('list', { query: $('#search').value, includeCaptures: $('#include-captures').checked });
-    const list = $('#note-list');
-    list.innerHTML = '';
-    $('#note-count').textContent = String(rows.length);
-    if (rows.length === 0) list.append(el('div', { class: 'empty', text: $('#search').value ? 'No notes match.' : 'No notes yet. Click the toolbar icon on any page to start one.' }));
-    rows.forEach((r) => list.append(noteRow(r)));
+    await explorer.reload();
+    await renderReminders();
+}
+
+async function renderReminders() {
     const reminders = await send('reminders');
     const rl = $('#reminder-list');
     rl.innerHTML = '';
@@ -107,10 +108,11 @@ async function reconnectVault() {
 
 // ----- settings --------------------
 
-const BOOLS = ['openInSidePanel', 'showBadge', 'openTabOnReminder', 'snapshotOnSave', 'writeToVault'];
+const BOOLS = ['showBadge', 'openTabOnReminder', 'snapshotOnSave', 'writeToVault'];
 
 function renderSettings() {
     BOOLS.forEach((k) => { $(`#${k}`).checked = !!settings[k]; });
+    document.querySelectorAll('input[name="launch"]').forEach((r) => { r.checked = r.value === settings.launch; });
     $('#rules').value = JSON.stringify(settings.rules.map(({ name, match, key, enabled, flags }) => ({ name, match, key, enabled: enabled !== false, ...(flags !== undefined ? { flags } : {}) })), null, 2);
 }
 
@@ -155,11 +157,14 @@ async function init() {
     $('#version').textContent = `v${chrome.runtime.getManifest().version}`;
     settings = (await loadSettings()).settings;
     renderSettings();
+    explorer = createExplorer($('#note-list'), { search: $('#search'), includeCaptures: $('#include-captures'), onCount: (n) => { $('#note-count').textContent = String(n); }, onChange: renderReminders });
     await renderLists();
     await renderVault();
 
-    $('#search').addEventListener('input', () => renderLists());
-    $('#include-captures').addEventListener('change', () => renderLists());
+    let listTimer;
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes['notes:index']) { clearTimeout(listTimer); listTimer = setTimeout(renderLists, 150); }
+    });
     $('#export').addEventListener('click', () => exportAll().catch((e) => { $('#backup-status').textContent = e.message; }));
     $('#import').addEventListener('click', () => $('#import-file').click());
     $('#import-file').addEventListener('change', (e) => importFiles(e.target.files).catch((err) => { $('#backup-status').textContent = err.message; }).finally(() => { e.target.value = ''; }));
@@ -169,6 +174,7 @@ async function init() {
     $('#vault-write').addEventListener('click', async () => { const r = await send('writeAllToVault'); $('#vault-status').textContent = r.status === 'written' ? `Wrote ${r.written} notes.` : `Could not write (${r.status}).`; });
     $('#vault-disconnect').addEventListener('click', async () => { await clearVaultHandle(); await renderVault(); });
     BOOLS.forEach((k) => $(`#${k}`).addEventListener('change', (e) => { settings[k] = e.target.checked; save(); }));
+    document.querySelectorAll('input[name="launch"]').forEach((r) => r.addEventListener('change', (e) => { if (e.target.checked) { settings.launch = e.target.value; save(); } }));
     $('#test-url').addEventListener('input', runTester);
     $('#rules-apply').addEventListener('click', applyRules);
     $('#rules-reset').addEventListener('click', () => { settings.rules = DEFAULTS.rules.map((r) => ({ ...r })); renderSettings(); save(); runTester(); });

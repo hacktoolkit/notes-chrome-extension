@@ -5,6 +5,7 @@
     <title>Page Notes</title>
     <link rel="stylesheet" href="ui.css" />
     <link rel="stylesheet" href="options.css" />
+    <link rel="stylesheet" href="explorer.css" />
 </head>
 <body>
     <div class="page">
@@ -23,10 +24,10 @@
             <section id="notes" class="card">
                 <h2>All notes <span id="note-count" class="pill"></span></h2>
                 <div class="list-head">
-                    <input type="search" id="search" placeholder="Search titles, URLs, tags and entries" />
+                    <input type="search" id="search" placeholder="Find a page, note or sticky…" aria-label="Search saved notes" />
                     <label class="toggle"><input type="checkbox" id="include-captures" /> Include pages you only captured</label>
                 </div>
-                <div id="note-list" class="notes"></div>
+                <div id="note-list"></div>
             </section>
 
             <section id="reminders" class="card">
@@ -62,7 +63,13 @@
 
             <section id="settings" class="card">
                 <h2>Settings</h2>
-                <div class="row"><div class="lbl"><b>Open in the sidebar</b><span>The toolbar icon opens a sidebar that stays beside the page and follows the active tab, instead of a popup. You can also open the sidebar from the popup's footer.</span></div><label class="switch"><input type="checkbox" id="openInSidePanel" /><i></i></label></div>
+                <div class="row row-stack"><div class="lbl"><b>The toolbar icon opens</b><span>How the note appears when you click the icon or press the shortcut. Every mode can still open the sidebar from its footer.</span></div>
+                    <div class="seg" role="radiogroup" aria-label="The toolbar icon opens">
+                        <label><input type="radio" name="launch" value="popup" /><span><b>Popup</b><small>Next to the icon. Closes when you click away.</small></span></label>
+                        <label><input type="radio" name="launch" value="sidebar" /><span><b>Docked sidebar</b><small>Stays beside the page and follows the active tab. Click the icon again or its ✕ to close.</small></span></label>
+                        <label><input type="radio" name="launch" value="floating" /><span><b>On the page</b><small>A floating button on the page you clicked, drag it anywhere; it opens the note in a window you can also drag. Appears only on pages where you click the icon.</small></span></label>
+                    </div>
+                </div>
                 <div class="row"><div class="lbl"><b>Count on the toolbar icon</b><span>Shows how many entries the current page has.</span></div><label class="switch"><input type="checkbox" id="showBadge" /><i></i></label></div>
                 <div class="row"><div class="lbl"><b>Open the page when a reminder fires</b><span>Otherwise you only get a notification.</span></div><label class="switch"><input type="checkbox" id="openTabOnReminder" /><i></i></label></div>
                 <div class="row"><div class="lbl"><b>Keep captures of pages you note</b><span>Each time you save an entry or open the popup on a noted page, store what the page looks like (title, metadata, text) in this browser. That is what powers "changed since your last visit" and profile insights. Never sent anywhere.</span></div><label class="switch"><input type="checkbox" id="snapshotOnSave" /><i></i></label></div>

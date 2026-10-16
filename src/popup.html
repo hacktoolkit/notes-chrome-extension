@@ -17,6 +17,7 @@
     </header>
 
     <main>
+        <div id="saved-here" class="saved-here" role="status" hidden></div>
         <div id="empty" class="empty" hidden>Nothing to note on this page.</div>
         <section id="compose">
             <div class="editor-head"><span id="today-label" class="muted"></span><span id="status" class="status" aria-live="polite"></span></div>
@@ -36,11 +37,21 @@
             <div class="stickies-head">
                 <span class="eyebrow">On the page</span>
                 <span class="spacer"></span>
+                <button id="toggle-stickies" class="ghost tiny" hidden>Hide all</button>
                 <button id="copy-feedback" class="ghost tiny" title="Copy a numbered list of your stickies with the quoted context" hidden>Copy feedback</button>
                 <button id="add-sticky" class="tiny primary" title="Pick a part of the page and comment on it">+ Sticky</button>
             </div>
             <ol id="sticky-list"></ol>
             <label id="always-show" class="always" hidden><input type="checkbox" id="always-show-toggle" /> Always show stickies on <span id="always-origin"></span></label>
+        </section>
+        <section id="linked" class="linked" hidden>
+            <div class="linked-head">
+                <span class="eyebrow">Linked pages</span>
+                <span class="spacer"></span>
+                <button id="add-link" class="tiny" title="Connect this page to another saved page, on any site">+ Link</button>
+            </div>
+            <div id="link-picker" hidden></div>
+            <ul id="linked-list"></ul>
         </section>
         <div id="insights" class="insights" hidden></div>
         <ol id="entries" class="entries"></ol>

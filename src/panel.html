@@ -5,18 +5,22 @@
     <title>Page Notes</title>
     <link rel="stylesheet" href="ui.css" />
     <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="explorer.css" />
 </head>
 <body class="panel">
     <header class="head">
+        <button id="browse-notes" class="back-button" title="Back to this site's saved pages" aria-label="Back to this site's saved pages">←</button>
         <img id="fav" class="fav" src="../img/icon32.png" alt="" width="22" height="22" />
         <div class="head-text">
             <h1 id="page-title"></h1>
             <div id="page-url" class="muted"></div>
         </div>
         <span id="rule" class="pill" hidden></span>
+        <button id="close-view" class="close-button" title="Close" aria-label="Close">✕</button>
     </header>
 
     <main>
+        <div id="saved-here" class="saved-here" role="status" hidden></div>
         <div id="empty" class="empty" hidden>Nothing to note on this page.</div>
         <section id="compose">
             <div class="editor-head"><span id="today-label" class="muted"></span><span id="status" class="status" aria-live="polite"></span></div>
@@ -36,18 +40,34 @@
             <div class="stickies-head">
                 <span class="eyebrow">On the page</span>
                 <span class="spacer"></span>
+                <button id="toggle-stickies" class="ghost tiny" hidden>Hide all</button>
                 <button id="copy-feedback" class="ghost tiny" title="Copy a numbered list of your stickies with the quoted context" hidden>Copy feedback</button>
                 <button id="add-sticky" class="tiny primary" title="Pick a part of the page and comment on it">+ Sticky</button>
             </div>
             <ol id="sticky-list"></ol>
             <label id="always-show" class="always" hidden><input type="checkbox" id="always-show-toggle" /> Always show stickies on <span id="always-origin"></span></label>
         </section>
+        <section id="linked" class="linked" hidden>
+            <div class="linked-head">
+                <span class="eyebrow">Linked pages</span>
+                <span class="spacer"></span>
+                <button id="add-link" class="tiny" title="Connect this page to another saved page, on any site">+ Link</button>
+            </div>
+            <div id="link-picker" hidden></div>
+            <ul id="linked-list"></ul>
+        </section>
         <div id="insights" class="insights" hidden></div>
         <ol id="entries" class="entries"></ol>
     </main>
 
+    <section id="library" hidden>
+        <div class="library-head"><button id="library-up" class="back-button" title="Up one level" aria-label="Up one level" hidden>←</button><div class="library-title"><h2 id="library-title">All notes</h2><span id="library-sub" class="muted">Your pages, together.</span></div><button id="close-view-library" class="close-button" title="Close" aria-label="Close">✕</button></div>
+        <div id="library-explorer"></div>
+    </section>
+
     <footer class="foot">
         <a href="#" id="open-all">All notes</a>
+        <a href="#" id="return-to-page" class="return" hidden>↩ Current page</a>
         <a href="#" id="open-detail" hidden>Details</a>
         <span id="capture-hint" class="muted" hidden>Click the toolbar icon on this page to capture it.</span>
         <span class="spacer"></span>

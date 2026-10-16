@@ -30,3 +30,7 @@ h2 { margin: 0 0 10px; font-size: 16px; display: flex; align-items: center; gap:
 .diff .add { color: var(--ok); } .diff .del { color: var(--danger); text-decoration: line-through; opacity: 0.8; }
 .diff div { padding: 1px 0; white-space: pre-wrap; }
 .empty { color: var(--muted); font-size: 13px; }
+.sticky-note { padding: 12px 14px; background: var(--sticky-soft); border: 1px solid var(--sticky-edge); border-radius: var(--radius-s); }
+.sticky-note .eyebrow { color: var(--sticky-ink); }
+.sticky-note blockquote { margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--sticky-edge); color: var(--muted); }
+.sticky-note .text { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -1,5 +1,5 @@
 // Note detail page: entries, insights, captures with diffs.
-import { toMarkdown } from './lib/notes.js';
+import { cleanTitle, toMarkdown } from './lib/notes.js';
 import { fmtDate } from './lib/profile.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -62,6 +62,29 @@ async function init() {
     const entries = $('#entries');
     [...note.entries].reverse().forEach((e) => entries.append(el('li', { class: 'entry' }, [el('div', { class: 'when', text: fmt(e.at) }), el('div', { class: 'text', text: e.text })])));
     if (note.entries.length === 0) entries.append(el('li', { class: 'empty', text: 'No entries.' }));
+
+    if (note.stickies?.length) {
+        $('#sticky-section').hidden = false;
+        note.stickies.forEach((s, i) => $('#stickies').append(el('li', { class: 'sticky-note' }, [
+            el('div', { class: 'eyebrow', text: `Sticky ${i + 1}${s.found === false ? ' · location missing' : ''}` }),
+            el('blockquote', { text: s.anchor?.quote?.exact || s.anchor?.label || 'Page element' }),
+            el('div', { class: 'text', text: s.text || 'No comment yet' })
+        ])));
+    }
+
+    const linked = await send('links', { id });
+    if (linked.length) {
+        $('#linked-section').hidden = false;
+        for (const row of linked) {
+            $('#linked').append(el('li', {}, [
+                el('span', { class: 't' }, [
+                    row.missing ? el('b', { class: 'muted', text: row.key }) : el('a', { href: `note.html?id=${row.id}`, text: cleanTitle(row.title) || row.url }),
+                    el('span', { text: row.missing ? 'That page\'s note is gone' : `${row.host}${row.entries ? ` · ${row.entries} ${row.entries === 1 ? 'entry' : 'entries'}` : ''}${row.stickies ? ` · ${row.stickies} ${row.stickies === 1 ? 'sticky' : 'stickies'}` : ''}` })
+                ]),
+                row.url && !row.missing ? el('a', { href: row.url, target: '_blank', rel: 'noopener', class: 'muted', text: 'Open page ↗' }) : null
+            ]));
+        }
+    }
 
     const caps = note.snapshots || [];
     $('#capture-count').textContent = String(caps.length);
