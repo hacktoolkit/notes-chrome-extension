@@ -4,17 +4,24 @@
 import { loadSettings } from './lib/settings.js';
 import { compileRules } from './lib/url.js';
 import {
-    addEntry, addSnapshot, addSticky, feedbackMarkdown, fileNameFor, fromMarkdown, identify, mergeNotes, matchesQuery, newNote,
-    presetTime, removeEntry, removeSticky, setReminder, setToday, toMarkdown, todayIndex, updateEntry, updateSticky
+    addEntry, addSnapshot, addSticky, feedbackMarkdown, fileNameFor, fromMarkdown, identify, linkNotes, mergeNotes, matchesQuery, newNote, noteId,
+    presetTime, removeEntry, removeSticky, setReminder, setToday, toMarkdown, todayIndex, unlinkNotes, updateEntry, updateSticky
 } from './lib/notes.js';
 
 // The popup does not need snapshot bodies; keep its messages small.
 function stripForPopup(note) {
     return { ...note, snapshots: (note.snapshots || []).map(({ text, ...rest }) => ({ ...rest, chars: text?.length || 0 })), snapshot: note.snapshot ? { at: note.snapshot.at, title: note.snapshot.title } : null };
 }
-import { allNotes, deleteNote, getIndex, getNote, putNote, rebuildIndex, writeToVault } from './lib/store.js';
+import { allNotes, deleteNote, getIndex, getNote, migrateNoteTitles, putNote, rebuildIndex, writeToVault } from './lib/store.js';
 import { makeZip } from './lib/zip.js';
 import { analyzeProfile, captureBudget, diffLines, diffProfiles, extractorFor } from './lib/profile.js';
+
+const storageReady = migrateNoteTitles();
+const VISIBILITY_KEY = 'stickies:visible';
+const WIDGET_KEY = 'widget:layout';
+async function stickyVisibility() {
+    return (await chrome.storage.local.get(VISIBILITY_KEY))[VISIBILITY_KEY] !== false;
+}
 
 // ----- context --------------------
 
@@ -127,6 +134,32 @@ async function persist(note, settings) {
     return saved;
 }
 
+// ----- links --------------------
+
+// The index rows for a note's links, by key. A link whose page was deleted or
+// never imported is kept (the key still says what it was) and marked missing.
+async function linkedRows(note) {
+    const keys = note?.links || [];
+    if (!keys.length) return [];
+    const index = await getIndex();
+    return keys.map((key) => index[noteId(key)] || { id: noteId(key), key, title: key, host: '', url: '', missing: true });
+}
+
+// The note named by args.id, or the (possibly new) note for args.url / the
+// tab: linking a page the user has not written on yet creates its note.
+async function noteFor(args) {
+    if (args.id) {
+        const note = await getNote(args.id);
+        if (!note) throw new Error('Note not found');
+        return note;
+    }
+    const tab = await tabFor(args);
+    const url = args.url || tab?.url;
+    if (!url || !/^(https?|file):/.test(url)) throw new Error('No page to link');
+    const { ident, note } = await noteForUrl(url);
+    return note || newNote({ url, title: args.title || tab?.title || url, key: ident.key, rule: ident.rule });
+}
+
 // ----- messages --------------------
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -137,7 +170,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handle({ type, args = {} } = {}) {
+    await storageReady;
     switch (type) {
+        case 'openNote': {
+            const note = await getNote(args.id);
+            if (!note) throw new Error('Note not found');
+            const url = args.page ? note.url : chrome.runtime.getURL(`src/note.html?id=${note.id}`);
+            if (args.page && !/^(https?|file):/i.test(url)) throw new Error('This page cannot be opened.');
+            const tab = await chrome.tabs.create({ url });
+            return { tabId: tab.id };
+        }
+        case 'stickyVisibility': {
+            if (typeof args.visible === 'boolean') {
+                await chrome.storage.local.set({ [VISIBILITY_KEY]: args.visible });
+                await Promise.all((await chrome.tabs.query({})).map((t) => chrome.tabs.sendMessage(t.id, { type: 'pn:visibility', visible: args.visible }).catch(() => {})));
+            }
+            return { visible: await stickyVisibility() };
+        }
         case 'current': {
             const tab = await tabFor(args);
             if (!tab || !tab.url) return { tab: null, note: null };
@@ -153,7 +202,7 @@ async function handle({ type, args = {} } = {}) {
                     if (next !== note) note = await putNote(next);
                 }
             }
-            return { tab: { id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl || '' }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null, today: note ? todayIndex(note) : -1, alwaysShow: /^https?:/.test(tab.url) ? await alwaysShowState(tab.url) : null };
+            return { tab: { id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl || '' }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null, today: note ? todayIndex(note) : -1, linked: await linkedRows(note), stickiesVisible: await stickyVisibility(), alwaysShow: /^https?:/.test(tab.url) ? await alwaysShowState(tab.url) : null };
         }
         case 'capture': {
             // user asked to keep what this page looks like, with no entry yet
@@ -300,7 +349,39 @@ async function handle({ type, args = {} } = {}) {
             await chrome.tabs.remove(tab.id);
             return { when };
         }
+        case 'link': {
+            // args: { id | url | tabId } and { otherId }; symmetric, both notes saved
+            const [a, other] = await Promise.all([noteFor(args), getNote(args.otherId)]);
+            if (!other) throw new Error('That page has no note to link to');
+            const { settings } = await ctx();
+            const [a2, b2] = linkNotes(a, other);
+            const saved = (await persist(a2, settings)) || a2;
+            if (b2 !== other) await persist(b2, settings);
+            return { note: stripForPopup(saved), linked: await linkedRows(saved) };
+        }
+        case 'unlink': {
+            const a = await getNote(args.id);
+            if (!a) throw new Error('Note not found');
+            const other = await getNote(args.otherId);
+            const { settings } = await ctx();
+            // the other side may be gone: drop the dangling key by itself
+            const [a2, b2] = other ? unlinkNotes(a, other) : [{ ...a, links: (a.links || []).filter((k) => noteId(k) !== args.otherId) }, null];
+            const saved = (await persist(a2, settings)) || a2;
+            if (b2 && b2 !== other) await persist(b2, settings);
+            return { note: stripForPopup(saved), linked: await linkedRows(saved) };
+        }
+        case 'links':
+            return linkedRows(await getNote(args.id));
         case 'deleteNote': {
+            // the pages it was linked to forget it
+            const gone = await getNote(args.id);
+            if (gone?.links?.length) {
+                const { settings } = await ctx();
+                for (const key of gone.links) {
+                    const other = await getNote(noteId(key));
+                    if (other) await persist(unlinkNotes(other, gone)[0], settings);
+                }
+            }
             await deleteNote(args.id);
             await chrome.alarms.clear(`remind:${args.id}`);
             scheduleBadgeForAll();
@@ -370,9 +451,18 @@ async function handle({ type, args = {} } = {}) {
             }
             return { written, status, total: notes.length };
         }
+        case 'widgetLayout': {
+            // where the user left the floating button and its window; one
+            // local preference shared by every page
+            if (args.layout && typeof args.layout === 'object') {
+                const prev = (await chrome.storage.local.get(WIDGET_KEY))[WIDGET_KEY] || {};
+                await chrome.storage.local.set({ [WIDGET_KEY]: { ...prev, ...args.layout } });
+            }
+            return (await chrome.storage.local.get(WIDGET_KEY))[WIDGET_KEY] || {};
+        }
         case 'settingsChanged':
             scheduleBadgeForAll();
-            await applyPanelBehavior();
+            await applyLaunchMode();
             return true;
         default:
             throw new Error(`Unknown message type ${type}`);
@@ -388,7 +478,8 @@ async function layerPresent(tabId) {
 async function ensureLayer(tabId) {
     if (await layerPresent(tabId)) return;
     await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content/annotate.js'] });
-    for (let i = 0; i < 20; i++) { if (await layerPresent(tabId)) return; await new Promise((r) => setTimeout(r, 100)); }
+    for (let i = 0; i < 30; i++) { if (await layerPresent(tabId)) return; await new Promise((r) => setTimeout(r, 100)); }
+    throw new Error('The page did not accept the notes layer.');
 }
 
 // tell every tab on this page to re-read its stickies (no-op where the layer is absent)
@@ -420,6 +511,7 @@ let allBadgeTimer = null;
 // Badges come from the index (canonical key -> entry count), so a pass over
 // every tab costs one settings load, one rule compile and one index read.
 async function badgeContext() {
+    await storageReady;
     const c = await ctx();
     const index = await getIndex();
     const byKey = new Map(Object.values(index).map((r) => [r.key, r]));
@@ -431,9 +523,11 @@ async function applyBadge(tab, bc) {
         if (!bc.settings.showBadge || !tab.url) return chrome.action.setBadgeText({ tabId: tab.id, text: '' });
         const ident = identify(tab.url, bc.compiled, bc.settings.normalization);
         const row = bc.byKey.get(ident.key);
-        await chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#5b6cff' });
-        await chrome.action.setBadgeText({ tabId: tab.id, text: row ? String(row.entries || '●') : '' });
-        await chrome.action.setTitle({ tabId: tab.id, title: row ? `${APP_NAME}: ${row.entries} entries here` : APP_NAME });
+        const count = (row?.entries || 0) + (row?.stickies || 0);
+        await chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: count ? '#c73b3b' : '#6c7189' });
+        await chrome.action.setBadgeTextColor({ tabId: tab.id, color: '#ffffff' });
+        await chrome.action.setBadgeText({ tabId: tab.id, text: count ? String(count) : row ? '●' : '' });
+        await chrome.action.setTitle({ tabId: tab.id, title: count ? `${APP_NAME}: ${count} saved note${count === 1 ? '' : 's'} on this page` : row ? `${APP_NAME}: saved capture` : APP_NAME });
     } catch (e) { /* tab gone */ }
 }
 
@@ -539,13 +633,31 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         }
     } catch (e) { console.error(e); }
 });
-// When the icon opens the sidebar, the click is the moment we may read the
-// page: capture it so the panel has something to show.
-chrome.action.onClicked.addListener(async (tab) => {
-    try {
-        const { settings } = await loadSettings();
-        if (settings.openInSidePanel && tab?.url && /^https?:/.test(tab.url)) await handle({ type: 'current', args: { tabId: tab.id } });
-    } catch (e) { /* ignore */ }
+// With no popup set, the icon click reaches us. It is the moment we may read
+// the page (activeTab): capture it, then show the note the way the user chose.
+// The mode is cached so the side panel can open synchronously: that call only
+// works inside the click's gesture, which an awaited storage read can spend.
+chrome.action.onClicked.addListener((tab) => {
+    if (!tab?.id) return;
+    const web = /^https?:/.test(tab.url || '');
+    if (launchMode === 'floating' && !web) {
+        // browser and extension pages cannot host the layer: the panel instead
+        chrome.sidePanel.open({ windowId: tab.windowId }).catch((e) => console.error(e));
+        return;
+    }
+    (async () => {
+        try {
+            if (!web) return;
+            await handle({ type: 'current', args: { tabId: tab.id } });
+            if (launchMode !== 'floating') return;
+            await ensureLayer(tab.id);
+            await chrome.tabs.sendMessage(tab.id, { type: 'pn:widget', toggle: true });
+        } catch (e) {
+            console.error('launch failed', e);
+            chrome.action.setBadgeText({ tabId: tab.id, text: '!' }).catch(() => {});
+            chrome.action.setTitle({ tabId: tab.id, title: `${chrome.runtime.getManifest().name}: could not open here (${e.message})` }).catch(() => {});
+        }
+    })();
 });
 chrome.commands.onCommand.addListener(async (command, tab) => {
     if (command === 'snoozeTab') {
@@ -553,15 +665,18 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
     }
 });
 
-// ----- side panel --------------------
+// ----- launch mode --------------------
 
-// With the setting on, the toolbar icon opens the sidebar instead of the
-// popup. The click still grants activeTab for that page, so captures work.
-async function applyPanelBehavior() {
-    try {
-        const { settings } = await loadSettings();
-        await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: !!settings.openInSidePanel });
-    } catch (e) { /* older browsers */ }
+// The toolbar icon opens a popup, toggles the side panel, or (with no popup
+// and no panel behaviour) reaches onClicked, which puts the widget on the
+// page. The popup must be cleared for the other two modes: a popup takes the
+// click before anything else sees it.
+let launchMode = 'popup';
+async function applyLaunchMode() {
+    const { settings } = await loadSettings();
+    const mode = launchMode = settings.launch;
+    try { await chrome.action.setPopup({ popup: mode === 'popup' ? 'src/popup.html' : '' }); } catch (e) { /* ignore */ }
+    try { await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: mode === 'sidebar' }); } catch (e) { /* older browsers */ }
 }
 
 // ----- lifecycle --------------------
@@ -569,9 +684,11 @@ async function applyPanelBehavior() {
 chrome.runtime.onInstalled.addListener(async (details) => {
     await rebuildMenus();
     await rearmReminders();
-    await applyPanelBehavior();
+    await applyLaunchMode();
     scheduleBadgeForAll();
     if (details.reason === 'install') chrome.runtime.openOptionsPage();
 });
-chrome.runtime.onStartup.addListener(() => { rebuildMenus(); rearmReminders(); applyPanelBehavior(); scheduleBadgeForAll(); });
+chrome.runtime.onStartup.addListener(() => { rebuildMenus(); rearmReminders(); applyLaunchMode(); scheduleBadgeForAll(); });
 scheduleBadgeForAll();
+// the worker restarts often: warm the launch mode so the icon click can act at once
+applyLaunchMode();
