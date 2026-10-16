@@ -356,7 +356,7 @@ try {
     // event-driven: a watcher names the changed files and the sync is scoped to them
     const scopedFolder = { ...vault.folder };
     const n2File = Object.keys(scopedFolder).find((f) => f.endsWith(`-${n2.id}.md`));
-    scopedFolder[n2File] = { text: scopedFolder[n2File].text.replace(/\n## /, '\n## 2026-10-16 12:00\n\nLanded from another profile.\n\n## '), mtime: 999999 };
+    scopedFolder[n2File] = { text: scopedFolder[n2File].text.replace(/\n## /, '\n## 2026-01-05 12:00\n\nLanded from another profile.\n\n## '), mtime: 999999 };
     const scoped = await send({ type: 'syncVault', args: { folder: { files: scopedFolder }, state: afterDelete.state, only: [n2File] } });
     check('a scoped sync reads only the reported file and merges it', scoped.report.scoped === true && scoped.report.scanned === 1 && scoped.report.read === 1 && scoped.report.updated === 1 && (await send({ type: 'get', args: { id: n2.id } })).entries.some((e) => e.text === 'Landed from another profile.'), JSON.stringify(scoped.report));
     check('pages can watch the folder; the worker reports honestly that it cannot', await popup.eval(`import('./lib/vault.js').then((v) => v.canObserve())`) === true && (await send({ type: 'vaultStatus' })).workerWatching === false);
