@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addEntry, addSticky, fileNameFor, fromMarkdown, linkNotes, newNote, toMarkdown } from '../src/lib/notes.js';
-import { emptyState, hashText, memoryFolder, syncFolder, worthAFile } from '../src/lib/vault.js';
+import { changeCollector, emptyState, hashText, memoryFolder, syncFolder, worthAFile } from '../src/lib/vault.js';
 
 function memoryStore(notes = []) {
     const map = new Map(notes.map((n) => [n.id, n]));
@@ -125,4 +125,52 @@ test('a renamed title moves the file; stickies and links merge by identity; bad 
     assert.ok(folder.files[fileNameFor(merged)], 'the file follows the title');
     assert.equal(r.report.errors.length, 1);
     assert.match(r.report.errors[0], /junk\.md/);
+});
+
+test('a scoped sync touches only the reported files and handles a reported deletion', async () => {
+    const folder = memoryFolder({}, clock);
+    const a = addEntry(newNote({ url: 'https://a.com/', title: 'A', key: 'a', now: at(0) }), 'a', at(1));
+    const b = addEntry(newNote({ url: 'https://b.com/', title: 'B', key: 'b', now: at(0) }), 'b', at(1));
+    const S = memoryStore([a, b]);
+    let { state } = await syncFolder(folder, S, emptyState());
+    // another profile changes A's file and deletes B's; the watcher reports both names
+    const aName = fileNameFor(a), bName = fileNameFor(b);
+    const aText = folder.files[aName].text.replace('\na\n', '\na\n\n## 2026-10-16 11:00\n\nfrom elsewhere\n');
+    folder.files[aName] = { text: aText, mtime: clock() };
+    delete folder.files[bName];
+    // a third local note is new and would be written by a full scan; a scoped one leaves it
+    const c = addEntry(newNote({ url: 'https://c.com/', title: 'C', key: 'c', now: at(0) }), 'c', at(1));
+    S.map.set(c.id, c);
+    const r = await syncFolder(folder, S, state, { only: new Set([aName, bName]) });
+    assert.equal(r.report.scoped, true);
+    // the hand-edited file is not in canonical form, so the merged truth is written back to it, and only to it
+    assert.deepEqual([r.report.scanned, r.report.read, r.report.updated, r.report.deletedLocal, r.report.written], [1, 1, 1, 1, 1]);
+    assert.deepEqual(Object.keys(folder.files), [aName]);
+    assert.deepEqual(S.map.get(a.id).entries.map((e) => e.text), ['a', 'from elsewhere']);
+    assert.equal(S.map.has(b.id), false);
+    assert.equal(folder.files[fileNameFor(c)], undefined, 'scoped sync does not write unrelated notes');
+    // the next full scan writes C and is otherwise quiet
+    const full = await syncFolder(folder, S, r.state);
+    assert.deepEqual([full.report.read, full.report.written, full.report.updated], [0, 1, 0]);
+    // an empty or unknown scope is a full scan
+    assert.equal((await syncFolder(folder, S, full.state, { only: new Set() })).report.scoped, false);
+});
+
+test('changeCollector batches a burst into one flush, and a lost-track record forces a full sync', () => {
+    const timers = [];
+    const setTimer = (fn) => { timers.push(fn); return timers.length; };
+    const clearTimer = (id) => { timers[id - 1] = null; };
+    const flushed = [];
+    const c = changeCollector((batch) => flushed.push(batch), { setTimer, clearTimer });
+    c.add({ names: new Set(['a.md']) });
+    c.add({ names: new Set(['b.md', 'a.md']) });
+    assert.equal(c.pending(), true);
+    assert.equal(timers.filter(Boolean).length, 1, 'each add restarts the single timer');
+    timers.filter(Boolean)[0]();
+    assert.deepEqual([...flushed[0]], ['a.md', 'b.md']);
+    assert.equal(c.pending(), false);
+    c.add({ names: new Set(['c.md']) });
+    c.add({ names: new Set(), full: true });
+    timers.filter(Boolean).pop()();
+    assert.equal(flushed[1], null, 'full means scan everything');
 });

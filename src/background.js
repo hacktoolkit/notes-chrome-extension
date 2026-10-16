@@ -13,7 +13,8 @@ function stripForPopup(note) {
     return { ...note, snapshots: (note.snapshots || []).map(({ text, ...rest }) => ({ ...rest, chars: text?.length || 0 })), snapshot: note.snapshot ? { at: note.snapshot.at, title: note.snapshot.title } : null };
 }
 import { allNotes, deleteNote, getIndex, getNote, migrateNoteTitles, putNote, rebuildIndex, vaultFolder } from './lib/store.js';
-import { STATE_KEY, STATUS_KEY, SYNC_ALARM, SYNC_PERIOD_MINUTES, emptyState, hashText, memoryFolder, syncFolder, worthAFile } from './lib/vault.js';
+import { STATE_KEY, STATUS_KEY, SYNC_ALARM, SYNC_PERIOD_MINUTES, canObserve, changeCollector, emptyState, hashText, memoryFolder, observeHandle, syncFolder, worthAFile } from './lib/vault.js';
+import { loadVaultHandle } from './lib/store.js';
 import { applyShare, decodeShare, encodeShare, shareFileName, sharePayload } from './lib/share.js';
 import { makeZip } from './lib/zip.js';
 import { analyzeProfile, captureBudget, diffLines, diffProfiles, extractorFor } from './lib/profile.js';
@@ -181,10 +182,12 @@ function syncVault(args = {}) {
         if (status !== 'ok') { await setVaultStatus({ result: status, at: new Date().toISOString() }); return { status, report: null }; }
         const store = { allNotes, putNote, deleteNote: async (id) => { await deleteNote(id); await chrome.alarms.clear(`remind:${id}`); } };
         try {
-            const { state, report } = await syncFolder(folder, store, seam ? (args.state || emptyState()) : await vaultState());
+            const only = Array.isArray(args.only) && args.only.length ? new Set(args.only) : null;
+            const { state, report } = await syncFolder(folder, store, seam ? (args.state || emptyState()) : await vaultState(), { only });
             if (!seam) await setVaultState(state);
             await setVaultStatus({ result: 'ok', at: new Date().toISOString(), report, error: null });
             if (report.imported || report.updated || report.deletedLocal) { await rearmReminders(); scheduleBadgeForAll(); }
+            if (!seam) watchVault();
             return { status: 'ok', report, ...(seam ? { folder: seam.files, state } : {}) };
         } catch (e) {
             await setVaultStatus({ result: 'error', at: new Date().toISOString(), error: e.message });
@@ -203,6 +206,31 @@ async function maybeSyncVault() {
         if (st.at && Date.now() - new Date(st.at).getTime() < 60000) return;
         syncVault({ reason: 'view' }).catch(() => {});
     } catch (e) { /* ignore */ }
+}
+
+// Event-driven: watch the folder while this worker lives. Chrome does not yet
+// expose FileSystemObserver to service workers, so today this is a no-op and
+// the open pages (side panel, widget, Settings) do the watching; if a browser
+// adds it, the worker picks it up on every wake. The alarm and the
+// look-at-a-page sync remain the safety net either way.
+let vaultObserver = null, watchingHandle = null;
+const vaultChanges = changeCollector((names) => syncVault({ reason: 'watch', only: names ? [...names] : undefined }).catch(() => {}));
+async function watchVault() {
+    if (!canObserve()) return false;
+    try {
+        const handle = await loadVaultHandle();
+        if (!handle) { stopWatchingVault(); return false; }
+        if (vaultObserver && watchingHandle && await handle.isSameEntry(watchingHandle)) return true;
+        if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') return false;
+        stopWatchingVault();
+        vaultObserver = await observeHandle(handle, (change) => vaultChanges.add(change));
+        watchingHandle = handle;
+        return !!vaultObserver;
+    } catch (e) { console.warn('vault watch failed', e); return false; }
+}
+function stopWatchingVault() {
+    try { vaultObserver?.disconnect(); } catch (e) { /* ignore */ }
+    vaultObserver = null; watchingHandle = null;
 }
 
 async function scheduleVaultSync() {
@@ -523,7 +551,8 @@ async function handle({ type, args = {} } = {}) {
             return { ...r, written: r.report?.written || 0, total: (await getIndex() && Object.keys(await getIndex()).length) };
         }
         case 'vaultStatus':
-            return { ...(await vaultStatus()), connected: (await vaultFolder()).status !== 'no-vault' };
+            // service workers do not get FileSystemObserver today; the pages watch (see popup.js, options.js)
+            return { ...(await vaultStatus()), connected: (await vaultFolder()).status !== 'no-vault', workerCanWatch: canObserve(), workerWatching: !!vaultObserver };
         case 'shareExport': {
             // one page's stickies (and notes if asked) as a flat text file, no server
             const note = await getNote(args.id);
@@ -785,5 +814,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 chrome.runtime.onStartup.addListener(() => { rebuildMenus(); rearmReminders(); applyLaunchMode(); scheduleVaultSync(); scheduleBadgeForAll(); syncVault({ reason: 'startup' }).catch(() => {}); });
 scheduleBadgeForAll();
-// the worker restarts often: warm the launch mode so the icon click can act at once
+// the worker restarts often: warm the launch mode so the icon click can act at
+// once, and re-arm the folder watch that stopped with the previous worker
 applyLaunchMode();
+watchVault();

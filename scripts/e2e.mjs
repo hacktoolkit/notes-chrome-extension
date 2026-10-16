@@ -353,6 +353,30 @@ try {
     check('the real folder is not connected in this profile', (await send({ type: 'syncVault' })).status === 'no-vault');
     check('sync alarm is armed for this profile', !!(await popup.eval(`chrome.alarms.get('vault:sync')`)));
 
+    // event-driven: a watcher names the changed files and the sync is scoped to them
+    const scopedFolder = { ...vault.folder };
+    const n2File = Object.keys(scopedFolder).find((f) => f.endsWith(`-${n2.id}.md`));
+    scopedFolder[n2File] = { text: scopedFolder[n2File].text.replace(/\n## /, '\n## 2026-10-16 12:00\n\nLanded from another profile.\n\n## '), mtime: 999999 };
+    const scoped = await send({ type: 'syncVault', args: { folder: { files: scopedFolder }, state: afterDelete.state, only: [n2File] } });
+    check('a scoped sync reads only the reported file and merges it', scoped.report.scoped === true && scoped.report.scanned === 1 && scoped.report.read === 1 && scoped.report.updated === 1 && (await send({ type: 'get', args: { id: n2.id } })).entries.some((e) => e.text === 'Landed from another profile.'), JSON.stringify(scoped.report));
+    check('pages can watch the folder; the worker reports honestly that it cannot', await popup.eval(`import('./lib/vault.js').then((v) => v.canObserve())`) === true && (await send({ type: 'vaultStatus' })).workerWatching === false);
+    // the real observer, over the origin-private file system (no picker needed): the record shape we rely on
+    const observed = await popup.eval(`(async () => {
+        const v = await import('./lib/vault.js');
+        if (!v.canObserve()) return 'unsupported';
+        const dir = await navigator.storage.getDirectory();
+        const seen = [];
+        const observer = await v.observeHandle(dir, (c) => seen.push({ names: [...c.names], full: c.full }));
+        const fh = await dir.getFileHandle('watched-note.md', { create: true });
+        const w = await fh.createWritable(); await w.write('---\\ntitle: x\\n---\\n'); await w.close();
+        const other = await dir.getFileHandle('ignored.txt', { create: true }); const w2 = await other.createWritable(); await w2.write('x'); await w2.close();
+        for (let i = 0; i < 40 && !seen.some((c) => c.names.includes('watched-note.md')); i++) await new Promise((r) => setTimeout(r, 100));
+        observer.disconnect();
+        await dir.removeEntry('watched-note.md'); await dir.removeEntry('ignored.txt');
+        return JSON.stringify(seen);
+    })()`);
+    check('FileSystemObserver reports changed Markdown files by name and ignores other files', observed !== 'unsupported' && JSON.parse(observed).some((c) => c.names.includes('watched-note.md')) && !JSON.parse(observed).some((c) => c.names.includes('ignored.txt')), observed);
+
     // sharing stickies as a flat file: compressed, optionally encrypted, merged on import by page identity
     const priceNoteId = (await send({ type: 'list' })).find((r) => r.url === priceTab.url).id;
     const shared = await send({ type: 'shareExport', args: { id: priceNoteId, passphrase: 'open sesame' } });

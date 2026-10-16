@@ -2,6 +2,7 @@ import { DEFAULTS, loadSettings, saveSettings } from './lib/settings.js';
 import { canonicalize, compileRules, normalizeUrl } from './lib/url.js';
 import { clearVaultHandle, loadVaultHandle, saveVaultHandle } from './lib/store.js';
 import { createExplorer } from './lib/explorer.js';
+import { canObserve, changeCollector, observeHandle } from './lib/vault.js';
 
 const $ = (sel) => document.querySelector(sel);
 import { el, fmt, send } from './lib/ui.js';
@@ -84,12 +85,26 @@ async function renderVault() {
     if (!handle) { status.textContent = 'Not connected.'; return; }
     const perm = await handle.queryPermission({ mode: 'readwrite' });
     const st = await send('vaultStatus').catch(() => ({}));
-    const last = st.at ? `Last sync ${fmt(st.at)}${st.report ? ` · ${st.report.scanned} files, ${st.report.imported + st.report.updated} read in, ${st.report.written} written${st.report.errors?.length ? `, ${st.report.errors.length} skipped` : ''}` : ''}.` : 'Not synced yet.';
+    const how = canObserve() ? 'Changes from other profiles are picked up as they land, with a check every 5 minutes as a safety net.' : 'Checks the folder every 5 minutes.';
+    const last = st.at ? `${how} Last sync ${fmt(st.at)}${st.report ? ` · ${st.report.scanned} files, ${st.report.imported + st.report.updated} read in, ${st.report.written} written${st.report.errors?.length ? `, ${st.report.errors.length} skipped` : ''}` : ''}.` : 'Not synced yet.';
     if (perm === 'granted') status.textContent = `Connected to "${handle.name}". ${last}`;
     else { status.textContent = `Connected to "${handle.name}", access needs re-allowing this session. ${last}`; $('#vault-reconnect').hidden = false; }
 }
 
+// Settings is open while you look at the vault: watch the folder from here too.
+let pageObserver = null;
+async function watchVaultFromPage() {
+    if (pageObserver || !canObserve()) return;
+    try {
+        const handle = await loadVaultHandle();
+        if (!handle || (await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') return;
+        const changes = changeCollector((names) => send('syncVault', { only: names ? [...names] : undefined }).catch(() => {}));
+        pageObserver = await observeHandle(handle, (change) => changes.add(change));
+    } catch (e) { /* the alarm still runs */ }
+}
+
 async function syncNow() {
+    watchVaultFromPage();
     $('#vault-status').textContent = 'Syncing…';
     const r = await send('syncVault');
     await renderVault();
@@ -177,6 +192,7 @@ async function init() {
     explorer = createExplorer($('#note-list'), { search: $('#search'), includeCaptures: $('#include-captures'), onCount: (n) => { $('#note-count').textContent = String(n); }, onChange: renderReminders });
     await renderLists();
     await renderVault();
+    watchVaultFromPage();
 
     let listTimer;
     chrome.storage.onChanged.addListener((changes, area) => {

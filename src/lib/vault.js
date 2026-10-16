@@ -5,7 +5,8 @@
 // folder in tests.
 //
 //   folder: { list() -> [{ name, mtime, size }], read(name) -> text,
-//             write(name, text) -> { mtime, size }, remove(name) }
+//             write(name, text) -> { mtime, size }, remove(name),
+//             stat(name) -> { name, mtime, size } | null   (optional, for scoped syncs) }
 //   store:  { allNotes() -> [note], putNote(note) -> note|null, deleteNote(id) }
 //   state:  { files: { [name]: { id, mtime, size, hash } } }  (per profile)
 //
@@ -13,7 +14,9 @@
 // when its mtime or size changed, and compared by hash before parsing, since
 // cloud drives touch mtimes without changing content. Nothing is written when
 // a file already equals the note's serialization, so two profiles converge
-// instead of ping-ponging.
+// instead of ping-ponging. A file watcher (FileSystemObserver, where the
+// browser has it) names the files that changed, and `only` scopes the sync to
+// them; the periodic full scan remains the safety net.
 
 import { fileNameFor, fromMarkdown, mergeNotes, toMarkdown } from './notes.js';
 
@@ -38,10 +41,14 @@ export function worthAFile(note) {
 
 const recordFor = (state, id) => Object.entries(state.files).find(([, r]) => r.id === id);
 
-export async function syncFolder(folder, store, state = emptyState(), { now = new Date() } = {}) {
+export async function syncFolder(folder, store, state = emptyState(), { now = new Date(), only = null } = {}) {
     state = { files: { ...(state?.files || {}) } };
-    const report = { scanned: 0, read: 0, imported: 0, updated: 0, written: 0, deletedLocal: 0, deletedFiles: 0, errors: [] };
-    const files = (await folder.list()).filter((f) => f.name.endsWith('.md'));
+    const scoped = only instanceof Set && only.size > 0;
+    const report = { scanned: 0, read: 0, imported: 0, updated: 0, written: 0, deletedLocal: 0, deletedFiles: 0, errors: [], scoped };
+    let files;
+    if (scoped && folder.stat) files = (await Promise.all([...only].map((n) => folder.stat(n)))).filter(Boolean);
+    else files = await folder.list();
+    files = files.filter((f) => f.name.endsWith('.md') && (!scoped || only.has(f.name)));
     report.scanned = files.length;
     const notes = new Map((await store.allNotes()).map((n) => [n.id, n]));
     const seen = new Set();
@@ -100,9 +107,22 @@ export async function syncFolder(folder, store, state = emptyState(), { now = ne
         }
     }
 
+    const present = new Set(files.map((f) => f.name));
+    if (scoped) {
+        // a reported file that is gone: another profile deleted that note
+        for (const name of only) {
+            const rec = state.files[name];
+            if (present.has(name) || !rec) continue;
+            try {
+                if (notes.has(rec.id)) { await store.deleteNote(rec.id); report.deletedLocal++; }
+                delete state.files[name];
+            } catch (e) { report.errors.push(`${name}: ${e.message}`); }
+        }
+        return { state, report };
+    }
+
     // Notes without a file: new here, so write them; or synced before and the
     // file is gone, so another profile deleted them.
-    const present = new Set(files.map((f) => f.name));
     for (const note of notes.values()) {
         if (seen.has(note.id)) continue;
         const rec = recordFor(state, note.id);
@@ -129,6 +149,7 @@ export function memoryFolder(files = {}, clock = () => Date.now()) {
     return {
         files: store,
         async list() { return Object.entries(store).map(([name, f]) => ({ name, mtime: f.mtime, size: f.text.length })); },
+        async stat(name) { return store[name] ? { name, mtime: store[name].mtime, size: store[name].text.length } : null; },
         async read(name) { if (!store[name]) throw new Error('No such file'); return store[name].text; },
         async write(name, text) { const mtime = Math.max(clock(), (store[name]?.mtime || 0) + 1); store[name] = { text, mtime }; return { mtime, size: text.length }; },
         async remove(name) { delete store[name]; }
@@ -147,6 +168,10 @@ export function handleFolder(handle) {
             }
             return out;
         },
+        async stat(name) {
+            try { const f = await (await handle.getFileHandle(name)).getFile(); return { name, mtime: f.lastModified, size: f.size }; }
+            catch (e) { if (e.name === 'NotFoundError') return null; throw e; }
+        },
         async read(name) { return (await (await handle.getFileHandle(name)).getFile()).text(); },
         async write(name, text) {
             const fh = await handle.getFileHandle(name, { create: true });
@@ -157,5 +182,45 @@ export function handleFolder(handle) {
             return { mtime: f.lastModified, size: f.size };
         },
         async remove(name) { await handle.removeEntry(name); }
+    };
+}
+
+// ----- watching --------------------
+
+export function canObserve() { return typeof globalThis.FileSystemObserver === 'function'; }
+
+// Watch a directory handle. onChanges receives { names: Set<string>, full: boolean }:
+// the Markdown files that changed, or full when the browser lost track. Returns
+// the observer (call .disconnect()) or null where the API is missing.
+export async function observeHandle(handle, onChanges) {
+    if (!canObserve()) return null;
+    const observer = new FileSystemObserver((records) => {
+        const names = new Set();
+        let full = false;
+        for (const r of records) {
+            if (r.type === 'unknown' || r.type === 'errored') { full = true; continue; }
+            for (const path of [r.relativePathComponents, r.relativePathMovedFrom]) {
+                const name = path?.length === 1 ? path[0] : null;
+                if (name && name.endsWith('.md')) names.add(name);
+            }
+        }
+        if (names.size || full) onChanges({ names, full });
+    });
+    await observer.observe(handle, { recursive: false });
+    return observer;
+}
+
+// Cloud drives land changes in bursts: gather names for a moment, then flush
+// once. flush(names | null) runs with null for a full sync.
+export function changeCollector(flush, { delay = 1500, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+    let names = new Set(), full = false, timer = null;
+    return {
+        add(change) {
+            if (change.full) full = true;
+            for (const n of change.names || []) names.add(n);
+            if (timer) clearTimer(timer);
+            timer = setTimer(() => { timer = null; const batch = full ? null : names; names = new Set(); full = false; flush(batch); }, delay);
+        },
+        pending: () => timer !== null
     };
 }

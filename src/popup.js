@@ -10,6 +10,7 @@ import { createExplorer } from './lib/explorer.js';
 import { createPagePicker } from './lib/picker.js';
 import { cleanTitle } from './lib/notes.js';
 import { loadVaultHandle } from './lib/store.js';
+import { canObserve, changeCollector, observeHandle } from './lib/vault.js';
 const APP_NAME = chrome.runtime.getManifest().name;
 const EMBED = new URLSearchParams(location.search).has('embed');
 if (EMBED) document.body.classList.add('embed');
@@ -284,6 +285,19 @@ async function openSharePanel(mode) {
     }
 }
 
+// While the side panel or widget is open it is a long-lived page: watch the
+// vault folder from here and ask the worker for a scoped sync as files land.
+let pageObserver = null;
+async function watchVaultFromPage() {
+    if (!PANEL || pageObserver || !canObserve()) return;
+    try {
+        const handle = await loadVaultHandle();
+        if (!handle || (await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') return;
+        const changes = changeCollector((names) => send('syncVault', { only: names ? [...names] : undefined }).catch(() => {}));
+        pageObserver = await observeHandle(handle, (change) => changes.add(change));
+    } catch (e) { /* the alarm still runs */ }
+}
+
 function renderVaultHint() {
     const hint = $('#vault-hint');
     hint.hidden = current?.vault?.result !== 'no-permission';
@@ -504,6 +518,7 @@ function init() {
             if (!handle) throw new Error('No vault folder is connected. Connect one in Settings.');
             if ((await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('Access was not granted.');
             $('#vault-hint').hidden = true;
+            watchVaultFromPage();
             const r = await send('syncVault');
             toast(r.status === 'ok' ? `Vault synced: ${r.report.imported + r.report.updated} read in, ${r.report.written} written` : `Vault: ${r.status}`, r.status !== 'ok');
             await refresh({ keepEditor: true, capture: false });
@@ -588,6 +603,7 @@ function init() {
     const start = async () => {
         if (EMBED) ownTabId = (await chrome.tabs.getCurrent())?.id || (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id || null;
         await refresh({ capture: !PANEL });
+        watchVaultFromPage();
         if (PANEL && !/^(https?|file):/.test(current?.tab?.url || '')) showLibrary();
         else { editor.focus(); editor.setSelectionRange(editor.value.length, editor.value.length); }
     };
