@@ -2,6 +2,7 @@
 // small for a notes habit). One item per note plus a small index for lists.
 // Settings are in settings.js (sync).
 
+import { handleFolder } from './vault.js';
 import { indexEntry, sanitizeSavedTitle } from './notes.js';
 
 const INDEX_KEY = 'notes:index';
@@ -141,20 +142,16 @@ export async function clearVaultHandle() {
     });
 }
 
-// Writes a file into the vault if we hold permission. Returns 'written',
-// 'no-vault', 'no-permission' or 'error'.
-export async function writeToVault(fileName, text) {
+// The vault folder as a sync adapter (see vault.js), if we hold permission.
+// status: 'ok' | 'no-vault' | 'no-permission' | 'error'.
+export async function vaultFolder() {
     const handle = await loadVaultHandle();
-    if (!handle) return 'no-vault';
+    if (!handle) return { status: 'no-vault', folder: null };
     try {
-        if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') return 'no-permission';
-        const file = await handle.getFileHandle(fileName, { create: true });
-        const w = await file.createWritable();
-        await w.write(text);
-        await w.close();
-        return 'written';
+        if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') return { status: 'no-permission', folder: null };
+        return { status: 'ok', folder: handleFolder(handle) };
     } catch (e) {
-        console.warn('vault write failed', e);
-        return 'error';
+        console.warn('vault unavailable', e);
+        return { status: 'error', folder: null };
     }
 }
