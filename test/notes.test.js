@@ -1,9 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addEntry, fileNameFor, fromMarkdown, identify, matchesQuery, mergeNotes, newNote, noteId, presetTime, removeEntry, setReminder, toMarkdown, updateEntry } from '../src/lib/notes.js';
+import { addEntry, fileNameFor, fromMarkdown, identify, indexEntry, linkNotes, matchesQuery, mergeNotes, newNote, noteId, presetTime, removeEntry, sanitizeSavedTitle, setReminder, toMarkdown, unlinkNotes, updateEntry } from '../src/lib/notes.js';
 import { DEFAULT_RULES, compileRules } from '../src/lib/url.js';
 
 const { compiled } = compileRules(DEFAULT_RULES);
+
+test('saved LinkedIn titles lose unread counts without changing note history or identity', () => {
+    const note = { ...newNote({ url: 'https://www.linkedin.com/in/jane/', title: 'Jane | LinkedIn', key: 'linkedin:jane' }), title: '(25) Jane | LinkedIn', snapshots: [{ title: '(25) Jane | LinkedIn', text: 'Historical capture' }] };
+    const cleaned = sanitizeSavedTitle(note);
+    assert.equal(cleaned.title, 'Jane | LinkedIn');
+    assert.deepEqual({ ...cleaned, title: note.title }, note);
+    assert.equal(sanitizeSavedTitle(cleaned), cleaned);
+    const other = { ...note, url: 'https://example.com/article', title: '(2026) Annual report' };
+    assert.equal(sanitizeSavedTitle(other), other);
+    assert.equal(sanitizeSavedTitle({ ...note, url: 'https://linkedin.com.example.com/' }).title, note.title);
+});
+
+test('search finds sticky comments and anchored quotes', () => {
+    const note = { ...newNote({ url: 'https://example.com/', key: 'example', title: 'Example' }), stickies: [{ text: 'Clarify annual billing', anchor: { quote: { exact: 'Plans start at $9' } } }] };
+    assert.equal(matchesQuery(note, 'annual billing'), true);
+    assert.equal(matchesQuery(note, 'plans $9'), true);
+    assert.equal(matchesQuery(note, 'monthly discount'), false);
+});
 
 test('identify collapses URL variants to one note id', () => {
     const a = identify('https://github.com/dataro/app/pull/482', compiled, {});
@@ -205,4 +223,32 @@ test('stickies: add, update, remove, feedback, and Markdown round-trip', async (
     n = removeSticky(n, id);
     assert.equal(n.stickies.length, 1);
     assert.equal(removeSticky(n, 'nope'), n);
+});
+
+test('links are symmetric, idempotent, refuse self, and round-trip through Markdown by key', () => {
+    const gh = newNote({ url: 'https://github.com/jontsai', title: 'jontsai', key: 'github:user:jontsai' });
+    const li = newNote({ url: 'https://www.linkedin.com/in/jontsai/', title: 'Jonathan | LinkedIn', key: 'linkedin:jontsai' });
+    const later = new Date(Date.now() + 60000);
+    const [gh2, li2] = linkNotes(gh, li, later);
+    assert.deepEqual(gh2.links, ['linkedin:jontsai']);
+    assert.deepEqual(li2.links, ['github:user:jontsai']);
+    assert.equal(gh2.updated, later.toISOString());
+    const [gh3, li3] = linkNotes(gh2, li2, new Date(later.getTime() + 60000));
+    assert.equal(gh3, gh2, 'relinking changes nothing');
+    assert.equal(li3, li2);
+    assert.throws(() => linkNotes(gh, gh), /itself/);
+    assert.equal(indexEntry(gh2).links, 1);
+    const back = fromMarkdown(toMarkdown(gh2));
+    assert.deepEqual(back.links, ['linkedin:jontsai']);
+    assert.equal(noteId(back.links[0]), li.id, 'a link resolves to the other note by key');
+    assert.deepEqual(fromMarkdown(toMarkdown(gh)).links, []);
+    const [gh4, li4] = unlinkNotes(gh2, li2);
+    assert.deepEqual([gh4.links, li4.links], [[], []]);
+    assert.equal(unlinkNotes(gh, li)[0], gh, 'unlinking an absent link changes nothing');
+    const merged = mergeNotes({ ...gh2 }, { ...gh, links: ['other:x', 'linkedin:jontsai'] });
+    assert.deepEqual(merged.links, ['linkedin:jontsai', 'other:x']);
+    // notes saved before links existed
+    const legacy = { ...gh }; delete legacy.links;
+    assert.deepEqual(linkNotes(legacy, li)[0].links, ['linkedin:jontsai']);
+    assert.equal(indexEntry(legacy).links, 0);
 });

@@ -2,7 +2,7 @@
 // small for a notes habit). One item per note plus a small index for lists.
 // Settings are in settings.js (sync).
 
-import { indexEntry } from './notes.js';
+import { indexEntry, sanitizeSavedTitle } from './notes.js';
 
 const INDEX_KEY = 'notes:index';
 const noteKey = (id) => `note:${id}`;
@@ -34,10 +34,28 @@ export function deleteNote(id) {
     return serialized(() => deleteNoteNow(id));
 }
 
+export function migrateNoteTitles() {
+    return serialized(async () => {
+        const marker = 'migration:linkedin-titles:1';
+        if ((await chrome.storage.local.get(marker))[marker]) return;
+        const data = await chrome.storage.local.get(null);
+        const index = { ...(data[INDEX_KEY] || {}) };
+        const changes = {};
+        for (const [key, note] of Object.entries(data)) {
+            if (!key.startsWith('note:') || !note?.id) continue;
+            const next = sanitizeSavedTitle(note);
+            if (next === note) continue;
+            changes[key] = next;
+            index[note.id] = indexEntry(next);
+        }
+        await chrome.storage.local.set({ ...changes, [INDEX_KEY]: index, [marker]: true });
+    });
+}
+
 async function putNoteNow(note) {
     const index = await getIndex();
-    if (note.entries.length === 0 && !note.remind && !(note.snapshots && note.snapshots.length) && !(note.stickies && note.stickies.length)) {
-        // a note with no entries, reminder or captures is a deleted note
+    if (note.entries.length === 0 && !note.remind && !(note.snapshots && note.snapshots.length) && !(note.stickies && note.stickies.length) && !(note.links && note.links.length)) {
+        // a note with no entries, reminder, captures, stickies or links is a deleted note
         delete index[note.id];
         await chrome.storage.local.remove(noteKey(note.id));
         await chrome.storage.local.set({ [INDEX_KEY]: index });

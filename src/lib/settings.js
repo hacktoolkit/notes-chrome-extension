@@ -4,12 +4,16 @@
 
 import { DEFAULT_NORMALIZATION, DEFAULT_RULES } from './url.js';
 
+// How the toolbar icon opens the note: a popup beside the icon, the docked
+// side panel, or a floating button on the page itself.
+export const LAUNCH_MODES = ['popup', 'sidebar', 'floating'];
+
 export const DEFAULTS = {
     showBadge: true,
     openTabOnReminder: true,
     snapshotOnSave: true,
     writeToVault: true,
-    openInSidePanel: false,
+    launch: 'popup',
     normalization: { ...DEFAULT_NORMALIZATION },
     rules: DEFAULT_RULES.map((r) => ({ ...r, enabled: true }))
 };
@@ -34,6 +38,9 @@ export function mergeSettings(stored) {
     const s = { ...DEFAULTS, ...(stored || {}) };
     s.normalization = { ...DEFAULT_NORMALIZATION, ...((stored && stored.normalization) || {}) };
     s.rules = Array.isArray(stored?.rules) ? stored.rules : DEFAULTS.rules.map((r) => ({ ...r }));
+    // the earlier boolean "open in the sidebar" becomes the sidebar launch mode
+    s.launch = LAUNCH_MODES.includes(stored?.launch) ? stored.launch : stored?.openInSidePanel ? 'sidebar' : 'popup';
+    delete s.openInSidePanel;
     return s;
 }
 

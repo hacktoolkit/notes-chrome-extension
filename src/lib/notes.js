@@ -32,6 +32,14 @@ export function cleanTitle(title) {
     return cleaned || t;
 }
 
+// Upgrade the display title only. Captures remain a record of what was seen,
+// and cleanup must not move an old note to the top of the recent list.
+export function sanitizeSavedTitle(note) {
+    if (!/(^|\.)linkedin\.com$/i.test(hostOf(note.url) || '')) return note;
+    const title = cleanTitle(note.title);
+    return title === note.title ? note : { ...note, title };
+}
+
 export function newNote({ url, title, key, rule, now = new Date() }) {
     const iso = now.toISOString();
     return {
@@ -49,8 +57,27 @@ export function newNote({ url, title, key, rule, now = new Date() }) {
         entries: [],
         snapshot: null,
         snapshots: [],
-        stickies: []
+        stickies: [],
+        links: []
     };
+}
+
+// ----- links: pages the user connected, across sites --------------------
+// A link is symmetric and stored on both notes as the other page's canonical
+// key, so it survives export (keys are readable) and resolves to an id with
+// noteId(). Linking is the user's judgement; nothing is inferred.
+
+export function linkNotes(a, b, now = new Date()) {
+    if (!a || !b || a.id === b.id) throw new Error('A page cannot link to itself.');
+    const iso = now.toISOString();
+    const add = (note, key) => (note.links || []).includes(key) ? note : { ...note, links: [...(note.links || []), key], updated: iso };
+    return [add(a, b.key), add(b, a.key)];
+}
+
+export function unlinkNotes(a, b, now = new Date()) {
+    const iso = now.toISOString();
+    const drop = (note, key) => (note.links || []).includes(key) ? { ...note, links: note.links.filter((k) => k !== key), updated: iso } : note;
+    return [drop(a, b.key), drop(b, a.key)];
 }
 
 // ----- stickies: notes attached to an element on the page --------------------
@@ -213,6 +240,7 @@ export function toMarkdown(note) {
     lines.push(`updated: ${note.updated}`);
     if (note.tags.length) lines.push(`tags: [${note.tags.map(yamlString).join(', ')}]`);
     if (note.remind) lines.push(`remind: ${note.remind}`);
+    if (note.links?.length) lines.push(`links: [${note.links.map(yamlString).join(', ')}]`);
     if (note.snapshot?.text) lines.push(`excerpt: ${JSON.stringify(note.snapshot.text.slice(0, 280))}`);
     lines.push('app: page-notes');
     lines.push('---', '');
@@ -315,7 +343,8 @@ export function fromMarkdown(text) {
         entries,
         snapshot: meta.excerpt ? { at: meta.updated || null, text: meta.excerpt } : null,
         snapshots: [],
-        stickies
+        stickies,
+        links: Array.isArray(meta.links) ? meta.links.map(String) : []
     };
 }
 
@@ -345,6 +374,7 @@ export function mergeNotes(existing, incoming, now = new Date()) {
         snapshot: existing.snapshot || incoming.snapshot,
         snapshots: existing.snapshots?.length ? existing.snapshots : incoming.snapshots || [],
         stickies: [...(existing.stickies || []), ...(incoming.stickies || []).filter((s) => !(existing.stickies || []).some((e) => e.id === s.id))],
+        links: [...new Set([...(existing.links || []), ...(incoming.links || [])])],
         entries
     };
 }
@@ -364,6 +394,7 @@ export function indexEntry(note) {
         entries: note.entries.length,
         captures: (note.snapshots || []).length,
         stickies: (note.stickies || []).length,
+        links: (note.links || []).length,
         rule: note.rule || null,
         preview: (last?.text || '').slice(0, 120)
     };
@@ -372,7 +403,7 @@ export function indexEntry(note) {
 export function matchesQuery(note, query) {
     const q = (query || '').trim().toLowerCase();
     if (!q) return true;
-    const hay = [note.title, note.url, note.host, note.tags.join(' '), ...note.entries.map((e) => e.text)].join('\n').toLowerCase();
+    const hay = [note.title, note.url, note.host, note.tags.join(' '), ...note.entries.map((e) => e.text), ...(note.stickies || []).flatMap((s) => [s.text, s.anchor?.quote?.exact || ''])].join('\n').toLowerCase();
     return q.split(/\s+/).every((term) => hay.includes(term));
 }
 
