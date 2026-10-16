@@ -20,6 +20,7 @@
     </header>
 
     <main>
+        <div id="vault-hint" class="vault-hint" role="status" hidden><span>The vault folder needs access this session to sync.</span><button id="vault-allow" class="tiny primary">Allow</button></div>
         <div id="saved-here" class="saved-here" role="status" hidden></div>
         <div id="empty" class="empty" hidden>Nothing to note on this page.</div>
         <section id="compose">
@@ -42,8 +43,11 @@
                 <span class="spacer"></span>
                 <button id="toggle-stickies" class="ghost tiny" hidden>Hide all</button>
                 <button id="copy-feedback" class="ghost tiny" title="Copy a numbered list of your stickies with the quoted context" hidden>Copy feedback</button>
+                <button id="share-stickies" class="ghost tiny" title="Send your stickies for this page to someone as a text file, no server involved" hidden>Share…</button>
+                <button id="import-stickies" class="ghost tiny" title="Paste a shared stickies file you received">Import…</button>
                 <button id="add-sticky" class="tiny primary" title="Pick a part of the page and comment on it">+ Sticky</button>
             </div>
+            <div id="share-panel" class="share-panel" hidden></div>
             <ol id="sticky-list"></ol>
             <label id="always-show" class="always" hidden><input type="checkbox" id="always-show-toggle" /> Always show stickies on <span id="always-origin"></span></label>
         </section>

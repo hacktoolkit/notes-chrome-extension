@@ -90,6 +90,21 @@ body.panel #capture-hint { flex-basis: 100%; font-size: var(--fs-xs); }
 #linked-list li.missing { cursor: default; } #linked-list li.missing .title { color: var(--muted); text-decoration: line-through; }
 #linked-list li.empty-row { display: block; font-size: var(--fs-s); line-height: 1.6; color: var(--muted); padding: 6px 0 2px; cursor: default; }
 
+/* vault: once per session the browser wants a click */
+.vault-hint { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius-s); background: var(--warn-soft); color: var(--text); font-size: var(--fs-s); }
+.vault-hint span { flex: 1; }
+
+/* sharing stickies as a flat file */
+.share-panel { display: grid; gap: 8px; margin: 6px 0 10px; padding: 10px; border: 1px solid var(--sticky-edge); border-radius: var(--radius-s); background: var(--panel); }
+.share-panel .share-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--muted); }
+.share-panel .share-row .spacer { flex: 1; }
+.share-panel input[type="password"], .share-panel input[type="text"] { flex: 1; min-width: 120px; font-size: var(--fs-s); padding: 5px 8px; }
+.share-panel textarea { width: 100%; min-height: 84px; font-family: var(--mono); font-size: 10.5px; line-height: 1.4; resize: vertical; }
+.share-panel label { display: flex; align-items: center; gap: 6px; }
+.share-panel .share-status { font-size: var(--fs-xs); color: var(--muted); min-height: 16px; }
+.share-panel .share-status.ok { color: var(--ok); }
+.share-panel .share-status.error { color: var(--danger-text); }
+
 /* stickies: notes pinned to parts of the page */
 .stickies { background: var(--sticky-soft); border: 1px solid var(--sticky-edge); border-radius: var(--radius); padding: 10px 12px; }
 .stickies-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }

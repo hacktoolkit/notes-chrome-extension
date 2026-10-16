@@ -9,6 +9,7 @@ import { el, fmt, send } from './lib/ui.js';
 import { createExplorer } from './lib/explorer.js';
 import { createPagePicker } from './lib/picker.js';
 import { cleanTitle } from './lib/notes.js';
+import { loadVaultHandle } from './lib/store.js';
 const APP_NAME = chrome.runtime.getManifest().name;
 const EMBED = new URLSearchParams(location.search).has('embed');
 if (EMBED) document.body.classList.add('embed');
@@ -131,6 +132,7 @@ function renderStickies() {
     $('#toggle-stickies').setAttribute('aria-pressed', String(current.stickiesVisible !== false));
     $('#toggle-stickies').title = 'Show or hide stickies on all pages';
     $('#copy-feedback').hidden = stickies.length === 0;
+    $('#share-stickies').hidden = stickies.length === 0;
     if (stickies.length === 0) {
         list.append(el('li', { class: 'empty-row', text: 'Pin a comment to any part of this page.' }));
     }
@@ -213,6 +215,80 @@ function closeLinkPicker() {
     renderLinked();
 }
 
+// ----- sharing stickies as a flat file --------------------
+let sharePanel = null; // 'export' | 'import' | null
+function closeSharePanel() {
+    sharePanel = null;
+    const box = $('#share-panel');
+    box.hidden = true; box.replaceChildren();
+    $('#share-stickies').setAttribute('aria-expanded', 'false');
+    $('#import-stickies').setAttribute('aria-expanded', 'false');
+}
+async function openSharePanel(mode) {
+    if (sharePanel === mode) { closeSharePanel(); return; }
+    closeSharePanel();
+    sharePanel = mode;
+    const box = $('#share-panel');
+    box.hidden = false;
+    $(mode === 'export' ? '#share-stickies' : '#import-stickies').setAttribute('aria-expanded', 'true');
+    const status = el('div', { class: 'share-status', role: 'status' });
+    const pass = el('input', { type: 'password', placeholder: mode === 'export' ? 'Passphrase (optional, encrypts the file)' : 'Passphrase, if it was encrypted', autocomplete: 'off', 'aria-label': 'Passphrase' });
+    if (mode === 'export') {
+        const includeEntries = el('input', { type: 'checkbox' });
+        const out = el('textarea', { readonly: true, 'aria-label': 'Shared stickies text', spellcheck: 'false' });
+        let result = null;
+        const build = async () => {
+            try {
+                result = await send('shareExport', { id: current.note.id, passphrase: pass.value, includeEntries: includeEntries.checked });
+                out.value = result.text;
+                status.className = 'share-status';
+                status.textContent = `${result.stickies} stick${result.stickies === 1 ? 'y' : 'ies'}${result.entries ? ` and ${result.entries} ${result.entries === 1 ? 'entry' : 'entries'}` : ''}, ${Math.round(result.text.length / 1024 * 10) / 10} KB${pass.value ? ', encrypted' : ', compressed only (anyone with the extension can read it)'}.`;
+            } catch (e) { status.className = 'share-status error'; status.textContent = e.message; }
+        };
+        let passTimer; pass.addEventListener('input', () => { clearTimeout(passTimer); passTimer = setTimeout(build, 350); });
+        includeEntries.addEventListener('change', build);
+        box.append(
+            el('div', { class: 'share-row' }, [el('b', { text: 'Share these stickies' }), el('span', { class: 'spacer' }), el('label', {}, [includeEntries, 'Include my notes too'])]),
+            el('div', { class: 'share-row' }, [pass]),
+            out,
+            el('div', { class: 'share-row' }, [
+                el('button', { class: 'tiny primary', text: 'Copy', onclick: async () => { if (!result) return; await navigator.clipboard.writeText(result.text); toast('Copied. Paste it into an email or chat.'); } }),
+                el('button', { class: 'tiny', text: 'Download .txt', onclick: () => { if (!result) return; const a = el('a', { href: URL.createObjectURL(new Blob([result.text], { type: 'text/plain' })), download: result.fileName }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); } }),
+                el('span', { class: 'spacer' }),
+                el('button', { class: 'ghost tiny', text: 'Close', onclick: closeSharePanel })
+            ]),
+            status
+        );
+        await build();
+    } else {
+        const input = el('textarea', { placeholder: 'Paste the shared text here (from -----BEGIN PAGE NOTES----- to -----END PAGE NOTES-----)', 'aria-label': 'Shared stickies text', spellcheck: 'false' });
+        const file = el('input', { type: 'file', accept: '.txt,text/plain', hidden: true });
+        file.addEventListener('change', async () => { if (file.files[0]) { input.value = await file.files[0].text(); doImport(); } });
+        const doImport = async () => {
+            try {
+                if (!input.value.trim()) { status.className = 'share-status error'; status.textContent = 'Paste or choose the shared file first.'; return; }
+                const r = await send('shareImport', { text: input.value, passphrase: pass.value, url: current.tab?.url });
+                status.className = 'share-status ok';
+                status.textContent = `Added ${r.addedStickies} stick${r.addedStickies === 1 ? 'y' : 'ies'}${r.addedEntries ? ` and ${r.addedEntries} ${r.addedEntries === 1 ? 'entry' : 'entries'}` : ''} to “${cleanTitle(r.title)}”${r.samePage === false ? ' (a different page than this one)' : ''}.`;
+                if (r.samePage !== false) { await refresh({ keepEditor: true, capture: false }); if (!$('#share-panel').hidden) {/* keep the status visible */} }
+                if (r.samePage === false) toast(`Imported to ${cleanTitle(r.title)}`);
+            } catch (e) { status.className = 'share-status error'; status.textContent = e.message; }
+        };
+        box.append(
+            el('div', { class: 'share-row' }, [el('b', { text: 'Import shared stickies' }), el('span', { class: 'spacer' }), el('button', { class: 'ghost tiny', text: 'Choose file…', onclick: () => file.click() }), file]),
+            input,
+            el('div', { class: 'share-row' }, [pass, el('button', { class: 'tiny primary', text: 'Import', onclick: doImport }), el('button', { class: 'ghost tiny', text: 'Close', onclick: closeSharePanel })]),
+            status
+        );
+        input.focus();
+    }
+}
+
+function renderVaultHint() {
+    const hint = $('#vault-hint');
+    hint.hidden = current?.vault?.result !== 'no-permission';
+}
+
 function openDetail() {
     if (current?.note) chrome.tabs.create({ url: chrome.runtime.getURL(`src/note.html?id=${current.note.id}`) });
 }
@@ -265,6 +341,7 @@ function render({ keepEditor = false } = {}) {
     renderInsights(current?.insights);
     renderStickies();
     renderLinked();
+    renderVaultHint();
 
     const list = $('#entries');
     list.innerHTML = '';
@@ -419,6 +496,19 @@ function init() {
         } catch (e) { toast(e.message, true); }
     });
     $('#add-link').addEventListener('click', () => { if (picker) closeLinkPicker(); else openLinkPicker(); });
+    $('#share-stickies').addEventListener('click', () => openSharePanel('export'));
+    $('#import-stickies').addEventListener('click', () => openSharePanel('import'));
+    $('#vault-allow').addEventListener('click', async () => {
+        try {
+            const handle = await loadVaultHandle();
+            if (!handle) throw new Error('No vault folder is connected. Connect one in Settings.');
+            if ((await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('Access was not granted.');
+            $('#vault-hint').hidden = true;
+            const r = await send('syncVault');
+            toast(r.status === 'ok' ? `Vault synced: ${r.report.imported + r.report.updated} read in, ${r.report.written} written` : `Vault: ${r.status}`, r.status !== 'ok');
+            await refresh({ keepEditor: true, capture: false });
+        } catch (e) { toast(e.message, true); }
+    });
     $('#add-sticky').addEventListener('click', async () => {
         try {
             if (!await flushDraft()) return;

@@ -33,7 +33,7 @@ Paste-ready copy for the dashboard. Plain-text copies are in `promo/store/`. The
 
 **Remote code:** No.
 
-**Data usage:** The extension does not collect or transmit any user data. Notes and page captures stay in the browser's local storage. Export writes files only where the user chooses. Tick the three certifications.
+**Data usage:** The extension does not collect or transmit any user data. Notes and page captures stay in the browser's local storage. Export, the vault folder and shared files are written only where the user chooses; a shared file is produced only on the user's explicit action and leaves the browser only by the user's own copy or download. Tick the three certifications.
 
 **Privacy policy URL:** the README's Privacy section, https://github.com/hacktoolkit/notes-chrome-extension#privacy
 

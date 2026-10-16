@@ -45,8 +45,16 @@
                     <input type="file" id="import-file" accept=".md,text/markdown" multiple hidden />
                     <span id="backup-status" class="muted"></span>
                 </div>
-                <h3>Obsidian vault</h3>
-                <p class="muted">Connect a folder inside your vault and every note is written there as a Markdown file on save. The browser asks you to re-allow access once per session.</p>
+                <h3>Shared stickies</h3>
+                <p class="muted">Someone sent you a <code>.pagenotes.txt</code> file? Import it here or paste it in the popup. Their stickies land on your note for that page; if it was encrypted, enter the passphrase they gave you.</p>
+                <div class="toolbar">
+                    <button id="share-import">Import a shared file…</button>
+                    <input type="file" id="share-file" accept=".txt,text/plain" hidden />
+                    <input type="password" id="share-pass" placeholder="Passphrase, if any" autocomplete="off" style="width: 200px" />
+                    <span id="share-status" class="muted"></span>
+                </div>
+                <h3>Vault folder</h3>
+                <p class="muted">Connect a folder, in your Obsidian vault or a synced drive such as iCloud Drive, and your notes live there as Markdown files: written on every save, and read back every few minutes so several browser profiles connected to the same folder share one notebook. Each profile keeps its own schedule; the files are plain Markdown any browser or app can read. The browser asks you to re-allow access once per session.</p>
                 <div id="vault-unsupported" class="notice" hidden>
                     <b>This browser has folder access turned off.</b>
                     <span>Brave disables the File System Access API by default. To turn it on, open <code>brave://flags/#file-system-access-api</code>, set it to Enabled, and relaunch. Chrome and Edge support it out of the box. Export and import work everywhere.</span>
@@ -55,7 +63,7 @@
                 <div class="toolbar">
                     <button id="vault-connect">Connect vault folder…</button>
                     <button id="vault-reconnect" hidden>Re-allow access</button>
-                    <button id="vault-write" hidden>Write all notes now</button>
+                    <button id="vault-write" hidden>Sync now</button>
                     <button id="vault-disconnect" class="ghost" hidden>Disconnect</button>
                     <span id="vault-status" class="muted"></span>
                 </div>
@@ -73,7 +81,7 @@
                 <div class="row"><div class="lbl"><b>Count on the toolbar icon</b><span>Shows how many entries the current page has.</span></div><label class="switch"><input type="checkbox" id="showBadge" /><i></i></label></div>
                 <div class="row"><div class="lbl"><b>Open the page when a reminder fires</b><span>Otherwise you only get a notification.</span></div><label class="switch"><input type="checkbox" id="openTabOnReminder" /><i></i></label></div>
                 <div class="row"><div class="lbl"><b>Keep captures of pages you note</b><span>Each time you save an entry or open the popup on a noted page, store what the page looks like (title, metadata, text) in this browser. That is what powers "changed since your last visit" and profile insights. Never sent anywhere.</span></div><label class="switch"><input type="checkbox" id="snapshotOnSave" /><i></i></label></div>
-                <div class="row"><div class="lbl"><b>Write to the vault on save</b></div><label class="switch"><input type="checkbox" id="writeToVault" /><i></i></label></div>
+                <div class="row"><div class="lbl"><b>Sync with the vault folder</b><span>Write every save to the connected folder and read other profiles' changes back every few minutes.</span></div><label class="switch"><input type="checkbox" id="writeToVault" /><i></i></label></div>
                 <h3>Page identity rules</h3>
                 <p class="muted">A note follows its page across URL variants: a pull request and its Files tab, a Jira issue and its board link, a profile and its subpages. Rules are regular expressions with a key template, the same format as Organize Tabs. Test a URL to see the key it gets.</p>
                 <div class="tester"><input type="url" id="test-url" placeholder="Paste a URL" spellcheck="false" /><div id="test-result" class="muted"></div></div>

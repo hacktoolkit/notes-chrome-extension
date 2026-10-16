@@ -12,7 +12,9 @@ import {
 function stripForPopup(note) {
     return { ...note, snapshots: (note.snapshots || []).map(({ text, ...rest }) => ({ ...rest, chars: text?.length || 0 })), snapshot: note.snapshot ? { at: note.snapshot.at, title: note.snapshot.title } : null };
 }
-import { allNotes, deleteNote, getIndex, getNote, migrateNoteTitles, putNote, rebuildIndex, writeToVault } from './lib/store.js';
+import { allNotes, deleteNote, getIndex, getNote, migrateNoteTitles, putNote, rebuildIndex, vaultFolder } from './lib/store.js';
+import { STATE_KEY, STATUS_KEY, SYNC_ALARM, SYNC_PERIOD_MINUTES, emptyState, hashText, memoryFolder, syncFolder, worthAFile } from './lib/vault.js';
+import { applyShare, decodeShare, encodeShare, shareFileName, sharePayload } from './lib/share.js';
 import { makeZip } from './lib/zip.js';
 import { analyzeProfile, captureBudget, diffLines, diffProfiles, extractorFor } from './lib/profile.js';
 
@@ -126,12 +128,85 @@ function insightsFor(note) {
 
 async function persist(note, settings) {
     const saved = await putNote(note);
-    if (saved && settings.writeToVault) {
-        await writeToVault(fileNameFor(saved), toMarkdown(saved));
-    }
+    if (saved && settings.writeToVault) await vaultWrite(saved);
     await syncReminder(saved || note);
     scheduleBadgeForAll();
     return saved;
+}
+
+// ----- vault: the folder shared between profiles --------------------
+
+async function vaultState() { return (await chrome.storage.local.get(STATE_KEY))[STATE_KEY] || emptyState(); }
+async function setVaultState(state) { await chrome.storage.local.set({ [STATE_KEY]: state }); }
+async function vaultStatus() { return (await chrome.storage.local.get(STATUS_KEY))[STATUS_KEY] || { result: 'never' }; }
+async function setVaultStatus(patch) { await chrome.storage.local.set({ [STATUS_KEY]: { ...(await vaultStatus()), ...patch } }); }
+
+// One note, written now (a save). The sync records what the folder holds so
+// the next scan does not read our own write back.
+async function vaultWrite(note) {
+    const { status, folder } = await vaultFolder();
+    if (status !== 'ok') { await setVaultStatus({ result: status }); return status; }
+    if (!worthAFile(note)) return 'skipped';
+    try {
+        const state = await vaultState();
+        const text = toMarkdown(note);
+        const name = fileNameFor(note);
+        const meta = await folder.write(name, text);
+        for (const [n, r] of Object.entries(state.files)) if (r.id === note.id && n !== name) { await folder.remove(n).catch(() => {}); delete state.files[n]; }
+        state.files[name] = { id: note.id, mtime: meta.mtime, size: meta.size, hash: hashText(text) };
+        await setVaultState(state);
+        return 'written';
+    } catch (e) { console.warn('vault write failed', e); await setVaultStatus({ result: 'error', error: e.message }); return 'error'; }
+}
+
+async function vaultRemove(id) {
+    const state = await vaultState();
+    const entry = Object.entries(state.files).find(([, r]) => r.id === id);
+    if (!entry) return;
+    const { status, folder } = await vaultFolder();
+    if (status === 'ok') await folder.remove(entry[0]).catch(() => {});
+    // with no access the record stays, and the next sync removes the file
+    if (status === 'ok') { delete state.files[entry[0]]; await setVaultState(state); }
+}
+
+// The two-way reconciliation, serialised so an alarm and a click cannot overlap.
+// Tests pass an in-memory folder in args.folder and get it back.
+let syncing = null;
+function syncVault(args = {}) {
+    if (syncing) return syncing;
+    syncing = (async () => {
+        const seam = args.folder ? memoryFolder(args.folder.files || {}) : null;
+        let folder = seam, status = 'ok';
+        if (!seam) ({ status, folder } = await vaultFolder());
+        if (status !== 'ok') { await setVaultStatus({ result: status, at: new Date().toISOString() }); return { status, report: null }; }
+        const store = { allNotes, putNote, deleteNote: async (id) => { await deleteNote(id); await chrome.alarms.clear(`remind:${id}`); } };
+        try {
+            const { state, report } = await syncFolder(folder, store, seam ? (args.state || emptyState()) : await vaultState());
+            if (!seam) await setVaultState(state);
+            await setVaultStatus({ result: 'ok', at: new Date().toISOString(), report, error: null });
+            if (report.imported || report.updated || report.deletedLocal) { await rearmReminders(); scheduleBadgeForAll(); }
+            return { status: 'ok', report, ...(seam ? { folder: seam.files, state } : {}) };
+        } catch (e) {
+            await setVaultStatus({ result: 'error', at: new Date().toISOString(), error: e.message });
+            return { status: 'error', error: e.message, report: null };
+        }
+    })().finally(() => { syncing = null; });
+    return syncing;
+}
+
+// A look at the current page is a good moment to catch up, at most once a minute.
+async function maybeSyncVault() {
+    try {
+        const { settings } = await loadSettings();
+        if (!settings.writeToVault) return;
+        const st = await vaultStatus();
+        if (st.at && Date.now() - new Date(st.at).getTime() < 60000) return;
+        syncVault({ reason: 'view' }).catch(() => {});
+    } catch (e) { /* ignore */ }
+}
+
+async function scheduleVaultSync() {
+    try { await chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES }); } catch (e) { /* ignore */ }
 }
 
 // ----- links --------------------
@@ -189,7 +264,8 @@ async function handle({ type, args = {} } = {}) {
         }
         case 'current': {
             const tab = await tabFor(args);
-            if (!tab || !tab.url) return { tab: null, note: null };
+            if (args.capture !== false) maybeSyncVault();
+            if (!tab || !tab.url) return { tab: null, note: null, vault: await vaultStatus() };
             let { ident, note, settings } = await noteForUrl(tab.url);
             // Opening the popup is a user action on this tab: keep what the
             // page looks like now. A page with no note yet gets a capture-only
@@ -202,7 +278,7 @@ async function handle({ type, args = {} } = {}) {
                     if (next !== note) note = await putNote(next);
                 }
             }
-            return { tab: { id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl || '' }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null, today: note ? todayIndex(note) : -1, linked: await linkedRows(note), stickiesVisible: await stickyVisibility(), alwaysShow: /^https?:/.test(tab.url) ? await alwaysShowState(tab.url) : null };
+            return { tab: { id: tab.id, url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl || '' }, ident, note: note ? stripForPopup(note) : null, insights: note ? insightsFor(note) : null, today: note ? todayIndex(note) : -1, linked: await linkedRows(note), vault: await vaultStatus(), stickiesVisible: await stickyVisibility(), alwaysShow: /^https?:/.test(tab.url) ? await alwaysShowState(tab.url) : null };
         }
         case 'capture': {
             // user asked to keep what this page looks like, with no entry yet
@@ -383,6 +459,7 @@ async function handle({ type, args = {} } = {}) {
                 }
             }
             await deleteNote(args.id);
+            await vaultRemove(args.id);
             await chrome.alarms.clear(`remind:${args.id}`);
             scheduleBadgeForAll();
             return true;
@@ -440,16 +517,32 @@ async function handle({ type, args = {} } = {}) {
             await rebuildIndex();
             return { imported, merged, errors };
         }
-        case 'writeAllToVault': {
-            const notes = await allNotes();
-            let written = 0;
-            let status = 'no-vault';
-            for (const n of notes) {
-                status = await writeToVault(fileNameFor(n), toMarkdown(n));
-                if (status === 'written') written++;
-                else break;
-            }
-            return { written, status, total: notes.length };
+        case 'writeAllToVault':
+        case 'syncVault': {
+            const r = await syncVault(args);
+            return { ...r, written: r.report?.written || 0, total: (await getIndex() && Object.keys(await getIndex()).length) };
+        }
+        case 'vaultStatus':
+            return { ...(await vaultStatus()), connected: (await vaultFolder()).status !== 'no-vault' };
+        case 'shareExport': {
+            // one page's stickies (and notes if asked) as a flat text file, no server
+            const note = await getNote(args.id);
+            if (!note) throw new Error('Note not found');
+            const payload = sharePayload(note, { includeEntries: !!args.includeEntries });
+            if (!payload.stickies.length && !payload.entries?.length) throw new Error('Nothing to share on this page yet.');
+            return { text: await encodeShare(payload, { passphrase: args.passphrase || '' }), fileName: shareFileName(note), stickies: payload.stickies.length, entries: payload.entries?.length || 0 };
+        }
+        case 'shareImport': {
+            // received stickies land on the recipient's note for that page,
+            // by the recipient's own identity rules
+            const payload = await decodeShare(args.text || '', { passphrase: args.passphrase || '' });
+            const { ident, note, settings } = await noteForUrl(payload.url);
+            const base = note || newNote({ url: payload.url, title: payload.title || payload.url, key: ident.key, rule: ident.rule });
+            const { note: next, addedStickies, addedEntries } = applyShare(base, payload);
+            const saved = next !== base ? await persist(next, settings) : base;
+            if (next !== base) await notifyLayers(payload.url);
+            const current = args.url ? identify(args.url, (await ctx()).compiled, settings.normalization).id === ident.id : null;
+            return { id: saved?.id || base.id, title: saved?.title || base.title, url: payload.url, addedStickies, addedEntries, samePage: current };
         }
         case 'widgetLayout': {
             // where the user left the floating button and its window; one
@@ -569,6 +662,7 @@ async function syncReminder(note) {
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name === SYNC_ALARM) { syncVault({ reason: 'alarm' }).catch(() => {}); return; }
     if (!alarm.name.startsWith('remind:')) return;
     const id = alarm.name.slice('remind:'.length);
     const note = await getNote(id);
@@ -685,10 +779,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await rebuildMenus();
     await rearmReminders();
     await applyLaunchMode();
+    await scheduleVaultSync();
     scheduleBadgeForAll();
     if (details.reason === 'install') chrome.runtime.openOptionsPage();
 });
-chrome.runtime.onStartup.addListener(() => { rebuildMenus(); rearmReminders(); applyLaunchMode(); scheduleBadgeForAll(); });
+chrome.runtime.onStartup.addListener(() => { rebuildMenus(); rearmReminders(); applyLaunchMode(); scheduleVaultSync(); scheduleBadgeForAll(); syncVault({ reason: 'startup' }).catch(() => {}); });
 scheduleBadgeForAll();
 // the worker restarts often: warm the launch mode so the icon click can act at once
 applyLaunchMode();

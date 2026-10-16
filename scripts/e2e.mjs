@@ -334,6 +334,41 @@ try {
     const unlinked = await send({ type: 'unlink', args: { id: liNote.id, otherId: n2.id } });
     check('unlink removes both sides', unlinked.linked.length === 0 && (await send({ type: 'links', args: { id: n2.id } })).length === 0);
     await send({ type: 'link', args: { id: n2.id, otherId: liNote.id } }); // kept for the UI checks below
+
+    // two-way vault through the in-memory folder seam: another profile's file
+    // comes in, local notes go out, a deletion elsewhere propagates
+    const otherMd = ['---', 'title: From another profile', 'url: https://docs.example.com/guide', 'key: https://docs.example.com/guide', 'created: 2026-10-10T09:00:00.000Z', 'updated: 2026-10-10T09:05:00.000Z', 'app: page-notes', '---', '', '## 2026-10-10 09:05', '', 'Written in profile B.', ''].join('\n');
+    let vault = await send({ type: 'syncVault', args: { folder: { files: { 'from-another-profile-x.md': { text: otherMd, mtime: 1000 } } } } });
+    const guideRow = (await send({ type: 'list' })).find((r) => r.url === 'https://docs.example.com/guide');
+    check('vault sync imports a file written by another profile', vault.status === 'ok' && vault.report.imported === 1 && guideRow && guideRow.entries === 1, JSON.stringify(vault.report));
+    check('vault sync writes this profile\'s notes and renames the file to its canonical name', vault.report.written >= 5 && Object.keys(vault.folder).some((f) => f.endsWith(`-${n2.id}.md`)) && !vault.folder['from-another-profile-x.md'] && Object.keys(vault.folder).some((f) => f.endsWith(`-${guideRow.id}.md`)), Object.keys(vault.folder).join(','));
+    check('vault files carry links by key', /\nlinks: \[linkedin:/.test(vault.folder[Object.keys(vault.folder).find((f) => f.endsWith(`-${n2.id}.md`))].text));
+    const steady = await send({ type: 'syncVault', args: { folder: { files: vault.folder }, state: vault.state } });
+    check('a second sync over an unchanged folder reads and writes nothing', steady.report.read === 0 && steady.report.written === 0 && steady.report.imported === 0, JSON.stringify(steady.report));
+    delete vault.folder[Object.keys(vault.folder).find((f) => f.endsWith(`-${guideRow.id}.md`))];
+    const afterDelete = await send({ type: 'syncVault', args: { folder: { files: vault.folder }, state: vault.state } });
+    check('a file deleted by another profile deletes the note here', afterDelete.report.deletedLocal === 1 && !(await send({ type: 'list' })).some((r) => r.id === guideRow.id), JSON.stringify(afterDelete.report));
+    const vs = await send({ type: 'vaultStatus' });
+    check('vault status records the last sync', vs.result === 'ok' && vs.at && vs.report && vs.connected === false, JSON.stringify({ result: vs.result, connected: vs.connected }));
+    check('the real folder is not connected in this profile', (await send({ type: 'syncVault' })).status === 'no-vault');
+    check('sync alarm is armed for this profile', !!(await popup.eval(`chrome.alarms.get('vault:sync')`)));
+
+    // sharing stickies as a flat file: compressed, optionally encrypted, merged on import by page identity
+    const priceNoteId = (await send({ type: 'list' })).find((r) => r.url === priceTab.url).id;
+    const shared = await send({ type: 'shareExport', args: { id: priceNoteId, passphrase: 'open sesame' } });
+    check('shareExport produces a wrapped encrypted text file', /^-----BEGIN PAGE NOTES-----\npagenotes\/1 deflate aes-gcm\n/.test(shared.text) && shared.text.trimEnd().endsWith('-----END PAGE NOTES-----') && shared.fileName.endsWith('.pagenotes.txt') && shared.stickies === 1, shared.fileName);
+    const wrongPass = await send({ type: 'shareImport', args: { text: shared.text, passphrase: 'nope' } }).then(() => '', (e) => e.message);
+    check('the wrong passphrase is refused', /Wrong passphrase/.test(wrongPass), wrongPass);
+    // simulate the recipient: wipe the sticky locally, then import
+    const beforeImport = await send({ type: 'get', args: { id: priceNoteId } });
+    await send({ type: 'stickyRemove', args: { url: priceTab.url, id: beforeImport.stickies[0].id } });
+    const imported = await send({ type: 'shareImport', args: { text: shared.text, passphrase: 'open sesame', url: priceTab.url } });
+    check('shareImport restores the stickies onto the recipient\'s note for that page', imported.addedStickies === 1 && imported.samePage === true && (await send({ type: 'stickies', args: { url: priceTab.url } })).length === 1, JSON.stringify(imported));
+    check('importing the same share again adds nothing', (await send({ type: 'shareImport', args: { text: shared.text, passphrase: 'open sesame' } })).addedStickies === 0);
+    const plainShare = await send({ type: 'shareExport', args: { id: priceNoteId, includeEntries: true } });
+    check('an unencrypted share with entries decodes without a passphrase', /deflate none/.test(plainShare.text) && (await send({ type: 'shareImport', args: { text: plainShare.text } })).addedStickies === 0);
+    const junk = await send({ type: 'shareImport', args: { text: 'hello there' } }).then(() => '', (e) => e.message);
+    check('foreign text is rejected', /not a Page Notes share/.test(junk), junk);
     const settingsTab = await popup.eval(`chrome.tabs.create({ url: 'chrome://version/', active: false })`);
     await sleep(500);
     const annotateErr = await send({ type: 'annotate', args: { tabId: settingsTab.id, pick: true } }).then(() => '', (e) => e.message);
@@ -580,6 +615,24 @@ try {
     const plainTwo = (await send({ type: 'list' })).find((r) => r.title === 'Plain Two');
     await send({ type: 'deleteNote', args: { id: plainTwo.id } });
     await popup.eval(`chrome.tabs.query({ url: 'https://example.com/plain-two' }).then((ts) => Promise.all(ts.map((t) => chrome.tabs.remove(t.id))))`);
+
+    // share panel in the sidebar, on the page with stickies
+    await popup.eval(`chrome.tabs.move(${priceTab.id}, { windowId: ${liTab.windowId}, index: -1 }).then(() => chrome.tabs.update(${priceTab.id}, { active: true }))`);
+    check('sidebar offers Share on a page with stickies', await panelWait(`document.querySelector('#page-url').textContent.includes('/pricing') && !document.querySelector('#share-stickies').hidden`));
+    await panel.eval(`document.querySelector('#share-stickies').click()`);
+    check('Share opens a panel with the encoded text ready to copy', await panelWait(`!document.querySelector('#share-panel').hidden && /^-----BEGIN PAGE NOTES-----/.test(document.querySelector('#share-panel textarea').value) && /1 sticky/.test(document.querySelector('#share-panel .share-status').textContent)`), await panel.eval(`document.querySelector('#share-panel .share-status').textContent`));
+    await panel.eval(`const p = document.querySelector('#share-panel input[type="password"]'); p.value = 'secret'; p.dispatchEvent(new Event('input'));`);
+    check('a passphrase switches the share to encrypted', await panelWait(`/aes-gcm/.test(document.querySelector('#share-panel textarea').value) && /encrypted/.test(document.querySelector('#share-panel .share-status').textContent)`));
+    const encryptedShare = await panel.eval(`document.querySelector('#share-panel textarea').value`);
+    await screenshot(panel, 'sidebar-share', 390, 860);
+    await panel.eval(`document.querySelector('#import-stickies').click()`);
+    check('Import replaces the share panel with a paste box', await panelWait(`document.querySelector('#share-panel textarea')?.placeholder.startsWith('Paste') && document.querySelector('#share-stickies').getAttribute('aria-expanded') === 'false'`));
+    await panel.eval(`document.querySelector('#share-panel textarea').value = ${JSON.stringify(encryptedShare)}; document.querySelector('#share-panel input[type="password"]').value = 'secret'; [...document.querySelectorAll('#share-panel button')].find((b) => b.textContent === 'Import').click();`);
+    check('importing my own share reports nothing new', await panelWait(`/Added 0 stickies/.test(document.querySelector('#share-panel .share-status').textContent)`), await panel.eval(`document.querySelector('#share-panel .share-status').textContent`));
+    await panel.eval(`[...document.querySelectorAll('#share-panel button')].find((b) => b.textContent === 'Close').click()`);
+    check('the share panel closes', await panel.eval(`document.querySelector('#share-panel').hidden`));
+    await popup.eval(`chrome.tabs.update(${pr.id}, { active: true })`);
+    await panelWait(`document.querySelector('#page-url').textContent === 'github.com/dataro/app/pull/482'`);
 
     // Browse saved notes inside the sidebar without changing the active tab.
     // Back is hierarchical: page -> its site's pages -> all sites, never a toggle.

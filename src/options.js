@@ -83,8 +83,26 @@ async function renderVault() {
     $('#vault-reconnect').hidden = true;
     if (!handle) { status.textContent = 'Not connected.'; return; }
     const perm = await handle.queryPermission({ mode: 'readwrite' });
-    if (perm === 'granted') status.textContent = `Connected to "${handle.name}".`;
-    else { status.textContent = `Connected to "${handle.name}", access needs re-allowing this session.`; $('#vault-reconnect').hidden = false; }
+    const st = await send('vaultStatus').catch(() => ({}));
+    const last = st.at ? `Last sync ${fmt(st.at)}${st.report ? ` · ${st.report.scanned} files, ${st.report.imported + st.report.updated} read in, ${st.report.written} written${st.report.errors?.length ? `, ${st.report.errors.length} skipped` : ''}` : ''}.` : 'Not synced yet.';
+    if (perm === 'granted') status.textContent = `Connected to "${handle.name}". ${last}`;
+    else { status.textContent = `Connected to "${handle.name}", access needs re-allowing this session. ${last}`; $('#vault-reconnect').hidden = false; }
+}
+
+async function syncNow() {
+    $('#vault-status').textContent = 'Syncing…';
+    const r = await send('syncVault');
+    await renderVault();
+    if (r.status !== 'ok') $('#vault-status').textContent += ` Could not sync (${r.status}${r.error ? `: ${r.error}` : ''}).`;
+}
+
+async function importShared(file) {
+    const status = $('#share-status');
+    try {
+        const r = await send('shareImport', { text: await file.text(), passphrase: $('#share-pass').value });
+        status.textContent = `Added ${r.addedStickies} stick${r.addedStickies === 1 ? 'y' : 'ies'}${r.addedEntries ? ` and ${r.addedEntries} ${r.addedEntries === 1 ? 'entry' : 'entries'}` : ''} to “${r.title}”.`;
+        await renderLists();
+    } catch (e) { status.textContent = e.message; }
 }
 
 async function connectVault() {
@@ -92,8 +110,7 @@ async function connectVault() {
         const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
         await saveVaultHandle(handle);
         await renderVault();
-        const r = await send('writeAllToVault');
-        $('#vault-status').textContent += ` Wrote ${r.written} of ${r.total}.`;
+        await syncNow();
     } catch (e) {
         if (e.name !== 'AbortError') $('#vault-status').textContent = e.message;
     }
@@ -103,7 +120,7 @@ async function reconnectVault() {
     const handle = await loadVaultHandle();
     if (!handle) return;
     await handle.requestPermission({ mode: 'readwrite' });
-    await renderVault();
+    await syncNow();
 }
 
 // ----- settings --------------------
@@ -171,7 +188,10 @@ async function init() {
     $('#vault-connect').addEventListener('click', connectVault);
     $('#copy-flag').addEventListener('click', () => { navigator.clipboard.writeText('brave://flags/#file-system-access-api'); $('#copy-flag').textContent = 'Copied'; });
     $('#vault-reconnect').addEventListener('click', reconnectVault);
-    $('#vault-write').addEventListener('click', async () => { const r = await send('writeAllToVault'); $('#vault-status').textContent = r.status === 'written' ? `Wrote ${r.written} notes.` : `Could not write (${r.status}).`; });
+    $('#vault-write').addEventListener('click', () => syncNow().catch((e) => { $('#vault-status').textContent = e.message; }));
+    $('#share-import').addEventListener('click', () => $('#share-file').click());
+    $('#share-file').addEventListener('change', (e) => { if (e.target.files[0]) importShared(e.target.files[0]).finally(() => { e.target.value = ''; }); });
+    chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes['vault:status']) renderVault(); });
     $('#vault-disconnect').addEventListener('click', async () => { await clearVaultHandle(); await renderVault(); });
     BOOLS.forEach((k) => $(`#${k}`).addEventListener('change', (e) => { settings[k] = e.target.checked; save(); }));
     document.querySelectorAll('input[name="launch"]').forEach((r) => r.addEventListener('change', (e) => { if (e.target.checked) { settings.launch = e.target.value; save(); } }));
