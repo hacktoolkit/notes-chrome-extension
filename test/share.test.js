@@ -16,7 +16,7 @@ test('payload carries stickies, and entries only when asked', () => {
     assert.equal(p.stickies.length, 1);
     assert.equal(p.entries, undefined);
     assert.equal(sharePayload(page(), { includeEntries: true }).entries.length, 1);
-    assert.equal(shareFileName(page()), 'pricing-site-stickies.pagenotes.txt');
+    assert.equal(shareFileName(page()), 'pricing-site-stickies.marginalia.txt');
 });
 
 test('encode/decode round-trips, compressed, wrapped, unencrypted', async () => {
@@ -44,12 +44,12 @@ test('a passphrase encrypts; the wrong one or none fails cleanly', async () => {
 });
 
 test('damaged or foreign text is rejected', async () => {
-    await assert.rejects(decodeShare('hello'), /not a Page Notes share/);
+    await assert.rejects(decodeShare('hello'), /not a Marginalia share/);
     const text = await encodeShare(sharePayload(page()));
     const lines = text.split('\n');
     lines[2] = lines[2].slice(0, -8) + 'AAAAAAAA';
     await assert.rejects(decodeShare(lines.join('\n')), /damaged/);
-    await assert.rejects(decodeShare(text.replace('pagenotes/1', 'pagenotes/9')), /newer version/);
+    await assert.rejects(decodeShare(text.replace('marginalia/1', 'marginalia/9')), /newer version/);
 });
 
 test('applyShare merges stickies by id and entries by time and text, never overwriting', () => {

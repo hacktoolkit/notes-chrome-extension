@@ -4,7 +4,7 @@
 
 import { describe, resolve } from '../lib/anchor.js';
 
-const APP = chrome.runtime.getManifest().name;
+const APP = chrome.runtime.getManifest().short_name || chrome.runtime.getManifest().name;
 
 const CSS = `
 :host { all: initial; }

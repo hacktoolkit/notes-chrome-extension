@@ -734,7 +734,7 @@ async function rearmReminders() {
 
 // ----- context menu and commands --------------------
 
-const APP_NAME = chrome.runtime.getManifest().name;
+const APP_NAME = chrome.runtime.getManifest().short_name || chrome.runtime.getManifest().name;
 const MENU = { addSelection: 'addSelection', snooze: 'snoozeTab' };
 let menuBuild = Promise.resolve();
 function rebuildMenus() {
@@ -778,7 +778,7 @@ chrome.action.onClicked.addListener((tab) => {
         } catch (e) {
             console.error('launch failed', e);
             chrome.action.setBadgeText({ tabId: tab.id, text: '!' }).catch(() => {});
-            chrome.action.setTitle({ tabId: tab.id, title: `${chrome.runtime.getManifest().name}: could not open here (${e.message})` }).catch(() => {});
+            chrome.action.setTitle({ tabId: tab.id, title: `${APP_NAME}: could not open here (${e.message})` }).catch(() => {});
         }
     })();
 });

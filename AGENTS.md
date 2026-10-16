@@ -1,4 +1,4 @@
-# Page Notes: notes for AI agents and contributors
+# Marginalia (Page Notes): notes for AI agents and contributors
 
 Built from the Hacktoolkit Chrome extension skeleton. Vanilla JavaScript, Manifest V3, no build step, no runtime dependencies, no server. Keep it that way.
 
@@ -6,7 +6,7 @@ Built from the Hacktoolkit Chrome extension skeleton. Vanilla JavaScript, Manife
 
 - **All operations run in the service worker.** The popup, side panel and options page send `chrome.runtime.sendMessage` and render results. Chrome closes the popup when a window is created or focused.
 - **The popup and the side panel are one view.** `src/panel.html` is `popup.html` with `body.panel`; `popup.js` branches on that class. The popup is bound to the tab it opened on; the panel follows its own window's active tab (it sends `windowId`). Captures need the activeTab grant from an icon click, so the panel shows a hint on uncaptured pages instead of trying.
-- **The display name lives in `manifest.json` only.** Code reads `chrome.runtime.getManifest().name`; internal identifiers (storage keys, the `app:` frontmatter token, the IndexedDB name) are fixed strings and do not change with the name.
+- **The display name lives in `manifest.json` only.** `name` is "Marginalia (Page Notes)" and `short_name` is "Marginalia"; code reads them at runtime, the short name for compact spots (pins, widget bar, badge tooltip) and the full name for titles. Internal identifiers (storage keys, the `app: marginalia` frontmatter token, the IndexedDB name `page-notes`, the `pn:` message prefix, the share envelope `-----BEGIN MARGINALIA-----`) are fixed strings and do not change with the name.
 - **One note per canonical page.** Identity comes from `identify()` in `src/lib/notes.js`, which uses the URL rules in `src/lib/url.js`. Never key anything on a raw URL.
 - **Pure logic is tested.** `notes.js`, `profile.js`, `url.js` and `zip.js` have no Chrome APIs and have `node --test` suites. Markdown round-trip (`toMarkdown` / `fromMarkdown`) must stay lossless for entries, tags, reminder and key.
 - **Notes live in `chrome.storage.local`**, one item per note plus `notes:index`. Sync storage is capped at 100 KB total; only settings go there.

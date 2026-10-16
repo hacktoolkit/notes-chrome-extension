@@ -12,6 +12,7 @@ import { cleanTitle } from './lib/notes.js';
 import { loadVaultHandle } from './lib/store.js';
 import { canObserve, changeCollector, observeHandle } from './lib/vault.js';
 const APP_NAME = chrome.runtime.getManifest().name;
+const SHORT_NAME = chrome.runtime.getManifest().short_name || APP_NAME;
 const EMBED = new URLSearchParams(location.search).has('embed');
 if (EMBED) document.body.classList.add('embed');
 const PANEL = document.body.classList.contains('panel');
@@ -262,7 +263,7 @@ async function openSharePanel(mode) {
         );
         await build();
     } else {
-        const input = el('textarea', { placeholder: 'Paste the shared text here (from -----BEGIN PAGE NOTES----- to -----END PAGE NOTES-----)', 'aria-label': 'Shared stickies text', spellcheck: 'false' });
+        const input = el('textarea', { placeholder: 'Paste the shared text here (from -----BEGIN MARGINALIA----- to -----END MARGINALIA-----)', 'aria-label': 'Shared stickies text', spellcheck: 'false' });
         const file = el('input', { type: 'file', accept: '.txt,text/plain', hidden: true });
         file.addEventListener('change', async () => { if (file.files[0]) { input.value = await file.files[0].text(); doImport(); } });
         const doImport = async () => {
@@ -316,7 +317,7 @@ function render({ keepEditor = false } = {}) {
     $('#compose').hidden = !tab;
     $('#insights').hidden = !tab;
     $('#entries').hidden = !tab;
-    $('#page-title').textContent = tab ? cleanTitle(note?.title || tab.title || tab.url) : APP_NAME;
+    $('#page-title').textContent = tab ? cleanTitle(note?.title || tab.title || tab.url) : SHORT_NAME;
     $('#page-url').textContent = tab ? tab.url.replace(/^https?:\/\//, '') : '';
     const fav = $('#fav');
     fav.src = tab?.favIconUrl && !tab.favIconUrl.startsWith('chrome://') ? tab.favIconUrl : '../img/icon32.png';

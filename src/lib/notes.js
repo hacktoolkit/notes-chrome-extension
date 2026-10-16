@@ -242,7 +242,7 @@ export function toMarkdown(note) {
     if (note.remind) lines.push(`remind: ${note.remind}`);
     if (note.links?.length) lines.push(`links: [${note.links.map(yamlString).join(', ')}]`);
     if (note.snapshot?.text) lines.push(`excerpt: ${JSON.stringify(note.snapshot.text.slice(0, 280))}`);
-    lines.push('app: page-notes');
+    lines.push('app: marginalia');
     lines.push('---', '');
     for (const e of [...note.entries].reverse()) {
         lines.push(`## ${fmtStamp(e.at)}`, '', e.text, '');

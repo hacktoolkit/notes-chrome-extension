@@ -1,6 +1,6 @@
 # Chrome Web Store listing kit
 
-Paste-ready copy for the dashboard. Plain-text copies are in `promo/store/`. The display name comes from `manifest.json`; this file says "Page Notes" and should be updated if the name changes.
+Paste-ready copy for the dashboard. Plain-text copies are in `promo/store/`. The display name comes from `manifest.json`: "Marginalia (Page Notes)", short name "Marginalia". Both plain names are taken in the store (a "Page Notes" with 10k+ users, a "Marginalia" study-notes extension), so the combined name is deliberate: the brand is Marginalia, and a search for page notes still finds it.
 
 ## Store listing tab
 
@@ -16,7 +16,7 @@ Paste-ready copy for the dashboard. Plain-text copies are in `promo/store/`. The
 
 **Single purpose:**
 
-> Page Notes lets the user write notes attached to web pages, keeps a local record of what those pages looked like when the user was there, and reminds the user to return to pages at a chosen time.
+> Marginalia (Page Notes) lets the user write notes attached to web pages, keeps a local record of what those pages looked like when the user was there, and reminds the user to return to pages at a chosen time.
 
 **Permission justifications:**
 

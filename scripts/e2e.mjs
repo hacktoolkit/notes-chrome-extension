@@ -337,7 +337,7 @@ try {
 
     // two-way vault through the in-memory folder seam: another profile's file
     // comes in, local notes go out, a deletion elsewhere propagates
-    const otherMd = ['---', 'title: From another profile', 'url: https://docs.example.com/guide', 'key: https://docs.example.com/guide', 'created: 2026-10-10T09:00:00.000Z', 'updated: 2026-10-10T09:05:00.000Z', 'app: page-notes', '---', '', '## 2026-10-10 09:05', '', 'Written in profile B.', ''].join('\n');
+    const otherMd = ['---', 'title: From another profile', 'url: https://docs.example.com/guide', 'key: https://docs.example.com/guide', 'created: 2026-10-10T09:00:00.000Z', 'updated: 2026-10-10T09:05:00.000Z', 'app: marginalia', '---', '', '## 2026-10-10 09:05', '', 'Written in profile B.', ''].join('\n');
     let vault = await send({ type: 'syncVault', args: { folder: { files: { 'from-another-profile-x.md': { text: otherMd, mtime: 1000 } } } } });
     const guideRow = (await send({ type: 'list' })).find((r) => r.url === 'https://docs.example.com/guide');
     check('vault sync imports a file written by another profile', vault.status === 'ok' && vault.report.imported === 1 && guideRow && guideRow.entries === 1, JSON.stringify(vault.report));
@@ -380,7 +380,7 @@ try {
     // sharing stickies as a flat file: compressed, optionally encrypted, merged on import by page identity
     const priceNoteId = (await send({ type: 'list' })).find((r) => r.url === priceTab.url).id;
     const shared = await send({ type: 'shareExport', args: { id: priceNoteId, passphrase: 'open sesame' } });
-    check('shareExport produces a wrapped encrypted text file', /^-----BEGIN PAGE NOTES-----\npagenotes\/1 deflate aes-gcm\n/.test(shared.text) && shared.text.trimEnd().endsWith('-----END PAGE NOTES-----') && shared.fileName.endsWith('.pagenotes.txt') && shared.stickies === 1, shared.fileName);
+    check('shareExport produces a wrapped encrypted text file', /^-----BEGIN MARGINALIA-----\nmarginalia\/1 deflate aes-gcm\n/.test(shared.text) && shared.text.trimEnd().endsWith('-----END MARGINALIA-----') && shared.fileName.endsWith('.marginalia.txt') && shared.stickies === 1, shared.fileName);
     const wrongPass = await send({ type: 'shareImport', args: { text: shared.text, passphrase: 'nope' } }).then(() => '', (e) => e.message);
     check('the wrong passphrase is refused', /Wrong passphrase/.test(wrongPass), wrongPass);
     // simulate the recipient: wipe the sticky locally, then import
@@ -392,7 +392,7 @@ try {
     const plainShare = await send({ type: 'shareExport', args: { id: priceNoteId, includeEntries: true } });
     check('an unencrypted share with entries decodes without a passphrase', /deflate none/.test(plainShare.text) && (await send({ type: 'shareImport', args: { text: plainShare.text } })).addedStickies === 0);
     const junk = await send({ type: 'shareImport', args: { text: 'hello there' } }).then(() => '', (e) => e.message);
-    check('foreign text is rejected', /not a Page Notes share/.test(junk), junk);
+    check('foreign text is rejected', /not a Marginalia share/.test(junk), junk);
     const settingsTab = await popup.eval(`chrome.tabs.create({ url: 'chrome://version/', active: false })`);
     await sleep(500);
     const annotateErr = await send({ type: 'annotate', args: { tabId: settingsTab.id, pick: true } }).then(() => '', (e) => e.message);
@@ -407,7 +407,7 @@ try {
         window.__store = { stickies: ${JSON.stringify(listed)}, calls: [], visible: true };
         window.chrome = { runtime: {
             id: 'stub',
-            getManifest: () => ({ name: 'Page Notes' }),
+            getManifest: () => ({ name: 'Marginalia (Page Notes)', short_name: 'Marginalia' }),
             getURL: (p) => '${LOCAL}/' + p,
             onMessage: { addListener(fn) { window.__onMessage = fn; } },
             sendMessage(msg, cb) {
@@ -644,7 +644,7 @@ try {
     await popup.eval(`chrome.tabs.move(${priceTab.id}, { windowId: ${liTab.windowId}, index: -1 }).then(() => chrome.tabs.update(${priceTab.id}, { active: true }))`);
     check('sidebar offers Share on a page with stickies', await panelWait(`document.querySelector('#page-url').textContent.includes('/pricing') && !document.querySelector('#share-stickies').hidden`));
     await panel.eval(`document.querySelector('#share-stickies').click()`);
-    check('Share opens a panel with the encoded text ready to copy', await panelWait(`!document.querySelector('#share-panel').hidden && /^-----BEGIN PAGE NOTES-----/.test(document.querySelector('#share-panel textarea').value) && /1 sticky/.test(document.querySelector('#share-panel .share-status').textContent)`), await panel.eval(`document.querySelector('#share-panel .share-status').textContent`));
+    check('Share opens a panel with the encoded text ready to copy', await panelWait(`!document.querySelector('#share-panel').hidden && /^-----BEGIN MARGINALIA-----/.test(document.querySelector('#share-panel textarea').value) && /1 sticky/.test(document.querySelector('#share-panel .share-status').textContent)`), await panel.eval(`document.querySelector('#share-panel .share-status').textContent`));
     await panel.eval(`const p = document.querySelector('#share-panel input[type="password"]'); p.value = 'secret'; p.dispatchEvent(new Event('input'));`);
     check('a passphrase switches the share to encrypted', await panelWait(`/aes-gcm/.test(document.querySelector('#share-panel textarea').value) && /encrypted/.test(document.querySelector('#share-panel .share-status').textContent)`));
     const encryptedShare = await panel.eval(`document.querySelector('#share-panel textarea').value`);

@@ -1,4 +1,4 @@
-# Page Notes
+# Marginalia (Page Notes)
 
 Notes in the margins of the web. A note on any page follows that page across URL variants, with dated entries, reminders, snoozed tabs, page snapshots, and Markdown export that Obsidian reads natively.
 
@@ -27,7 +27,7 @@ Vanilla JavaScript, Manifest V3, no build step, no dependencies, no server. Noth
 - **Profile insights.** On a LinkedIn profile the capture is parsed into a work history, and the extension points out what a careful reader would ask about: two full-time roles that overlap, two current full-time roles, dates that run backwards, short stints, long gaps. It also summarises years of experience, employers and average tenure, and builds a one-line card grouped by employer with promotions in order, ready to copy. Edits to the history between visits, such as an end date that moved, are called out separately. These are prompts for a conversation, never verdicts.
 - **Markdown export.** Every note is a `.md` file with YAML frontmatter. Download them all as a zip, which also carries every capture as plain text under `captures/`, or import notes back.
 - **A vault folder shared between browsers.** Connect a folder, in your Obsidian vault or in a synced drive such as iCloud Drive, and your notes live there as Markdown files: every save is written at once, and changes from other profiles are picked up as they land: while the sidebar, the floating widget or Settings is open, the folder is watched and only the changed files are read, with a check every five minutes as the safety net. Connect the same folder from each profile and they share one notebook; deletions follow too. The scan reads only file metadata and parses a file only when its content changed, so it stays quick with hundreds of notes, and there is no database to corrupt: the files are plain Markdown any app can read. The folder connection uses the File System Access API, which Chrome and Edge have on by default; Brave turns it off, and the settings page shows the flag to enable it. The browser asks once per session to re-allow access, and the popup offers the click.
-- **Send stickies to someone.** "Share…" on a page turns your stickies, and your notes if you tick the box, into a small text file: JSON, deflate-compressed, base64, wrapped between `-----BEGIN PAGE NOTES-----` and `-----END PAGE NOTES-----` so it survives email and chat. Add a passphrase and it is encrypted with AES-256-GCM (key from PBKDF2-SHA256); without one it is readable by anyone with the extension. The recipient pastes it into "Import…" or drops the file into Settings, and the stickies land on their note for that page under their own identity rules, merged by id so nothing is overwritten. No server, no account.
+- **Send stickies to someone.** "Share…" on a page turns your stickies, and your notes if you tick the box, into a small text file: JSON, deflate-compressed, base64, wrapped between `-----BEGIN MARGINALIA-----` and `-----END MARGINALIA-----` so it survives email and chat. Add a passphrase and it is encrypted with AES-256-GCM (key from PBKDF2-SHA256); without one it is readable by anyone with the extension. The recipient pastes it into "Import…" or drops the file into Settings, and the stickies land on their note for that page under their own identity rules, merged by id so nothing is overwritten. No server, no account.
 - **Search** across titles, URLs, tags, entries, sticky comments and their quoted text, and a type-to-find picker wherever you choose a page. Previously saved LinkedIn titles automatically lose leading unread-message counts; historical captures and note dates are preserved.
 
 ## The note format
@@ -43,7 +43,7 @@ updated: 2026-10-18T22:30:00.000Z
 tags: [people, sales]
 remind: 2026-11-01T09:00:00.000Z
 excerpt: "Jane Doe - Head of Things at Acme"
-app: page-notes
+app: marginalia
 ---
 
 ## 2026-10-19 09:30

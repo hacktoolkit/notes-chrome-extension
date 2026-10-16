@@ -3,14 +3,14 @@
 // (PBKDF2-SHA256 -> AES-256-GCM), base64, wrapped so it survives email and
 // chat. Pure Web APIs only, so it runs in the worker, the pages and node.
 //
-//   -----BEGIN PAGE NOTES-----
-//   pagenotes/1 deflate aes-gcm
+//   -----BEGIN MARGINALIA-----
+//   marginalia/1 deflate aes-gcm
 //   <base64, 76 columns>
-//   -----END PAGE NOTES-----
+//   -----END MARGINALIA-----
 
-export const SHARE_BEGIN = '-----BEGIN PAGE NOTES-----';
-export const SHARE_END = '-----END PAGE NOTES-----';
-const VERSION = 'pagenotes/1';
+export const SHARE_BEGIN = '-----BEGIN MARGINALIA-----';
+export const SHARE_END = '-----END MARGINALIA-----';
+const VERSION = 'marginalia/1';
 const PBKDF2_ITERATIONS = 250000;
 
 const enc = new TextEncoder();
@@ -71,14 +71,14 @@ export async function encodeShare(payload, { passphrase = '' } = {}) {
 
 // What a text claims to be, before decoding: { cipher } or null if not ours.
 export function inspectShare(text) {
-    const m = /-----BEGIN PAGE NOTES-----\s*\n\s*pagenotes\/(\d+) (\S+) (\S+)\s*\n([\s\S]*?)-----END PAGE NOTES-----/.exec(text || '');
+    const m = /-----BEGIN MARGINALIA-----\s*\n\s*marginalia\/(\d+) (\S+) (\S+)\s*\n([\s\S]*?)-----END MARGINALIA-----/.exec(text || '');
     if (!m) return null;
     return { version: Number(m[1]), compression: m[2], cipher: m[3], body: m[4] };
 }
 
 export async function decodeShare(text, { passphrase = '' } = {}) {
     const info = inspectShare(text);
-    if (!info) throw new Error('This is not a Page Notes share.');
+    if (!info) throw new Error('This is not a Marginalia share.');
     if (info.version !== 1 || info.compression !== 'deflate') throw new Error('This share needs a newer version of the extension.');
     let bytes = fromBase64(info.body);
     if (info.cipher === 'aes-gcm') {
@@ -118,5 +118,5 @@ export function applyShare(note, payload, now = new Date()) {
 }
 
 export function shareFileName(note) {
-    return `${(note.title || 'page').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'page'}-stickies.pagenotes.txt`;
+    return `${(note.title || 'page').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'page'}-stickies.marginalia.txt`;
 }

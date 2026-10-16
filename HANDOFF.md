@@ -1,4 +1,4 @@
-# Handoff: Page Notes (notes-chrome-extension)
+# Handoff: Marginalia (Page Notes), repo notes-chrome-extension
 
 Written 2026-10-15 for the next agent or person picking this up. Read `AGENTS.md` first (rules of the road, testing, the holodeck); this file is the state of play and the open questions.
 
@@ -81,7 +81,7 @@ A Manifest V3 extension, vanilla JavaScript, no build step, no dependencies, no 
 
 ## Decisions already made (do not relitigate without the owner)
 
-- **Name:** display name lives only in `manifest.json`; code reads it at runtime. Currently "Page Notes". The owner likes "Marginalia" (possible company name; collision: Marginalia Search, known on HN) and has not decided. Flipping is one line plus `package.json` and `README.md`.
+- **Name: decided 2026-10-17.** `name` is "Marginalia (Page Notes)" and `short_name` is "Marginalia" in `manifest.json`; code reads them at runtime, the short name for compact spots (on-page pins, widget bar, badge tooltip, empty header) and the full name for titles and the store. Both plain names are taken in the Chrome Web Store (a "Page Notes" with 10k+ users; a "Marginalia" study-notes extension; Marginalia Search), so the combined name is deliberate: brand Marginalia, discoverable as page notes. User-visible format tokens were renamed before any file existed: share envelope `-----BEGIN/END MARGINALIA-----`, header `marginalia/1`, file suffix `.marginalia.txt`, frontmatter `app: marginalia`. Internal keys (IndexedDB `page-notes`, `data-page-notes`, `__pageNotesLayer`, `pn:` messages, storage keys) stay as they are by rule. The repo stays `notes-chrome-extension`; the owner's iCloud folder is `browser_notes` and nothing in code depends on it.
 - **Site names stay in titles.** Only leading unread counters like "(3)" are stripped. The owner asked for this explicitly.
 - **Every capture is a user action.** No background content scripts, no passive collection, nothing transmitted. Per-site "always show stickies" is an explicit opt-in through optional host permissions requested from the popup. This is a product rule.
 - **Insights are questions, never verdicts.** Findings are `ask` or `info` with neutral wording. Never infer intent or protected characteristics. Never reference the owner's private hiring repository anywhere in this codebase.

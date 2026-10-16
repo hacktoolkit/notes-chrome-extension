@@ -1,16 +1,16 @@
 {
     "manifest_version": 3,
-    "name": "Page Notes",
-    "short_name": "Page Notes",
+    "name": "Marginalia (Page Notes)",
+    "short_name": "Marginalia",
     "version": "1.0.0",
-    "description": "Notes that follow the page, a local record of what it looked like, reminders, snoozed tabs and Markdown export.",
+    "description": "Notes that follow the page, stickies pinned to its parts, a local record of what it looked like, reminders, Markdown export.",
     "author": "Hacktoolkit (@hacktoolkit)",
     "minimum_chrome_version": "121",
     "icons": { "16": "img/icon16.png", "32": "img/icon32.png", "48": "img/icon48.png", "128": "img/icon128.png" },
     "action": {
         "default_icon": { "16": "img/icon16.png", "32": "img/icon32.png" },
         "default_popup": "src/popup.html",
-        "default_title": "Page Notes"
+        "default_title": "Marginalia (Page Notes)"
     },
     "options_ui": { "page": "src/options.html", "open_in_tab": true },
     "side_panel": { "default_path": "src/panel.html" },
@@ -19,7 +19,7 @@
     "background": { "service_worker": "src/background.js", "type": "module" },
     "permissions": ["tabs", "storage", "unlimitedStorage", "alarms", "notifications", "contextMenus", "activeTab", "scripting", "sidePanel"],
     "commands": {
-        "_execute_action": { "suggested_key": { "default": "Alt+Shift+N" }, "description": "Open Page Notes for this page" },
+        "_execute_action": { "suggested_key": { "default": "Alt+Shift+N" }, "description": "Open Marginalia for this page" },
         "snoozeTab": { "description": "Snooze this tab until tomorrow morning" }
     }
 }
