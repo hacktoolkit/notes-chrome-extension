@@ -238,6 +238,8 @@ test('links are symmetric, idempotent, refuse self, and round-trip through Markd
     assert.equal(li3, li2);
     assert.throws(() => linkNotes(gh, gh), /itself/);
     assert.equal(indexEntry(gh2).links, 1);
+    assert.deepEqual(indexEntry(gh2).linkKeys, ['linkedin:jontsai']);
+    assert.deepEqual(indexEntry(gh).linkKeys, []);
     const back = fromMarkdown(toMarkdown(gh2));
     assert.deepEqual(back.links, ['linkedin:jontsai']);
     assert.equal(noteId(back.links[0]), li.id, 'a link resolves to the other note by key');

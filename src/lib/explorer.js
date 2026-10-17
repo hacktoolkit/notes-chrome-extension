@@ -8,6 +8,13 @@ import { el, fmt, send } from './ui.js';
 import { cleanTitle } from './notes.js';
 import { createPagePicker } from './picker.js';
 
+// A small mark with the number of linked pages; their names live in the tooltip.
+function linkMark(row) {
+    const n = row.links || 0;
+    if (!n) return null;
+    const names = (row.linked || []).map((l) => cleanTitle(l.title) || l.title).join(', ');
+    return el('span', { class: 'explorer-link-count', title: names ? `Linked to ${names}` : `${n} linked page${n === 1 ? '' : 's'}`, 'aria-label': `${n} linked page${n === 1 ? '' : 's'}` }, [el('span', { class: 'mark', text: '⛓', 'aria-hidden': 'true' }), String(n)]);
+}
 const count = (n, word) => `${n} ${n === 1 ? word : ({ entry: 'entries', sticky: 'stickies' }[word] || `${word}s`)}`;
 function summary(row) {
     return [row.entries && count(row.entries, 'entry'), row.stickies && count(row.stickies, 'sticky'), row.captures && count(row.captures, 'capture')].filter(Boolean).join(' · ') || 'Empty page';
@@ -101,7 +108,11 @@ export function createExplorer(root, { search, includeCaptures, onCount = () => 
                 for (const b of pageList.querySelectorAll('button')) { b.classList.toggle('selected', b.dataset.id === selected); b.setAttribute('aria-pressed', String(b.dataset.id === selected)); }
                 showDetail(row.id);
                 setLevel(2);
-            } }, [el('span', { class: 'explorer-page-title', text: cleanTitle(row.title) || row.url }), el('span', { class: 'explorer-page-meta', text: summary(row) }), el('span', { class: 'explorer-page-excerpt', text: row.preview || row.host })]);
+            } }, [
+                el('span', { class: 'explorer-page-title', text: cleanTitle(row.title) || row.url }),
+                el('span', { class: 'explorer-page-meta' }, [summary(row), linkMark(row)]),
+                el('span', { class: 'explorer-page-excerpt', text: row.preview || row.host })
+            ]);
             pageList.append(button);
             }
         }

@@ -495,7 +495,9 @@ async function handle({ type, args = {} } = {}) {
         case 'get':
             return getNote(args.id);
         case 'list': {
-            const index = await getIndex();
+            let index = await getIndex();
+            // rows saved before links were indexed by key: rebuild once
+            if (Object.values(index).some((r) => r.links > 0 && !Array.isArray(r.linkKeys))) { await rebuildIndex(); index = await getIndex(); }
             let rows = Object.values(index);
             if (!args.includeCaptures) rows = rows.filter((r) => r.entries > 0 || r.remind || r.stickies > 0);
             if (args.query) {
@@ -504,7 +506,8 @@ async function handle({ type, args = {} } = {}) {
                 rows = rows.filter((r) => ids.has(r.id));
             }
             rows.sort((a, b) => b.updated.localeCompare(a.updated));
-            return rows;
+            // the pages each row is linked to, resolved against the whole index
+            return rows.map((r) => ({ ...r, linked: (r.linkKeys || []).map((key) => { const o = index[noteId(key)]; return o ? { id: o.id, title: o.title, host: o.host } : { id: noteId(key), title: key, host: '', missing: true }; }) }));
         }
         case 'reminders': {
             const index = await getIndex();

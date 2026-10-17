@@ -395,6 +395,7 @@ export function indexEntry(note) {
         captures: (note.snapshots || []).length,
         stickies: (note.stickies || []).length,
         links: (note.links || []).length,
+        linkKeys: note.links || [],
         rule: note.rule || null,
         preview: (last?.text || '').slice(0, 120)
     };

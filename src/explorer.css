@@ -27,6 +27,9 @@
 .explorer-page { display: grid; gap: 4px; }
 .explorer-page-title { font-weight: 600; font-size: var(--fs-m); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .explorer-page-meta, .explorer-page-excerpt { font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explorer-link-count { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); font-weight: 600; vertical-align: 1px; }
+.explorer-link-count .mark { font-size: 10px; }
+.explorer-list button.selected .explorer-link-count { background: var(--panel); }
 .explorer-preview { overflow: auto; min-width: 0; padding: 20px; }
 .explorer-preview h3 { font-size: 20px; line-height: 1.25; color: var(--text); margin: 8px 0; letter-spacing: -.025em; text-transform: none; overflow-wrap: anywhere; }
 .explorer-url { color: var(--muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
