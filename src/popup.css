@@ -135,7 +135,7 @@ body.embed { min-width: 0; }
 body.embed .head .close-button, body.embed .library-head .close-button { display: none; }
 body.panel main { min-height: 0; }
 #library { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
-.library-head { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; }
+.library-head { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; position: sticky; top: -14px; z-index: 2; background: var(--bg); padding: 14px 0 8px; margin-top: -14px; }
 .library-head h2 { font-size: 18px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .library-head .muted { font-size: var(--fs-xs); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.browsing #capture-hint, body.browsing #open-detail { display: none !important; }

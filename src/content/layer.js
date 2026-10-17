@@ -5,6 +5,8 @@
 import { describe, resolve } from '../lib/anchor.js';
 
 const APP = chrome.runtime.getManifest().short_name || chrome.runtime.getManifest().name;
+// "Hacktoolkit" from the manifest author, "Hacktoolkit (@hacktoolkit)"
+const BY = (chrome.runtime.getManifest().author || '').replace(/\s*\(.*\)\s*$/, '').trim();
 
 const CSS = `
 :host { all: initial; }
@@ -45,6 +47,7 @@ const CSS = `
 .widget { position: fixed; z-index: 2147483004; width: min(384px, calc(100vw - 16px)); height: min(620px, calc(100vh - 24px)); display: flex; flex-direction: column; overflow: hidden; background: #f6f6fa; color: #17192a; border: 1px solid #d3d6e3; border-radius: 14px; box-shadow: 0 2px 4px rgba(23,25,42,.06), 0 24px 56px rgba(23,25,42,.28); }
 .widget .bar { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 12px; background: #eff0f6; border-bottom: 1px solid #e3e5ee; color: #6c7189; font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; letter-spacing: .04em; text-transform: uppercase; cursor: grab; user-select: none; touch-action: none; }
 .widget .bar .grip { color: #b7bbcf; letter-spacing: -2px; font-size: 14px; }
+.widget .bar .by { text-transform: none; letter-spacing: 0; font-weight: 500; opacity: .75; margin-left: 2px; }
 .widget .bar .sp { flex: 1; }
 .widget .bar button { font: inherit; font-size: 14px; line-height: 1; border: 0; background: transparent; color: #6c7189; cursor: pointer; padding: 4px 7px; border-radius: 6px; }
 .widget .bar button:hover { background: #e3e5ee; color: #17192a; }
@@ -324,10 +327,11 @@ export function boot() {
             widget = document.createElement('div');
             widget.className = 'widget';
             widget.setAttribute('role', 'dialog');
-            widget.setAttribute('aria-label', `${APP} for this page`);
+            widget.setAttribute('aria-label', `${APP}${BY ? ` by ${BY}` : ''} for this page`);
             const bar = document.createElement('div'); bar.className = 'bar';
             const grip = document.createElement('span'); grip.className = 'grip'; grip.textContent = '⋮⋮'; grip.setAttribute('aria-hidden', 'true');
             const title = document.createElement('span'); title.textContent = APP;
+            if (BY) { const by = document.createElement('span'); by.className = 'by'; by.textContent = ` by ${BY}`; title.append(by); }
             const sp = document.createElement('span'); sp.className = 'sp';
             const close = document.createElement('button'); close.textContent = '✕'; close.title = 'Close (Esc)'; close.setAttribute('aria-label', 'Close notes');
             close.addEventListener('click', closeWidget);

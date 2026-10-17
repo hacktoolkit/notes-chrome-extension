@@ -52,7 +52,7 @@ async function showLibrary(show = true, { root = false } = {}) {
         await library.reload();
         const host = current?.note?.host || (current?.tab?.url && /^https?:/.test(current.tab.url) ? new URL(current.tab.url).hostname.replace(/^www\./, '') : '');
         library.focus(root ? {} : { host, id: current?.ident?.id });
-        $('#library-explorer input[type="search"]').focus();
+        $('#library-explorer input[type="search"]').focus({ preventScroll: true });
     } else await refresh({ capture: false });
 }
 

@@ -408,7 +408,7 @@ try {
         window.__store = { stickies: ${JSON.stringify(listed)}, calls: [], visible: true };
         window.chrome = { runtime: {
             id: 'stub',
-            getManifest: () => ({ name: 'Marginalia (Page Notes)', short_name: 'Marginalia' }),
+            getManifest: () => ({ name: 'Marginalia (Page Notes)', short_name: 'Marginalia', author: 'Hacktoolkit (@hacktoolkit)' }),
             getURL: (p) => '${LOCAL}/' + p,
             onMessage: { addListener(fn) { window.__onMessage = fn; } },
             sendMessage(msg, cb) {
@@ -495,6 +495,7 @@ try {
     await page.eval(`window.__store.layout = { fab: { x: 30, y: 40 } }; window.__onMessage({ type: 'pn:widget', toggle: true }, {}, () => {});`);
     await sleep(300);
     check('toolbar click shows the floating button where it was left and opens the widget', await page.eval(`!${shadowQ('.fab')}[0].hidden && ${shadowQ('.fab')}[0].style.left === '30px' && ${shadowQ('.fab')}[0].style.top === '40px' && ${shadowQ('.widget')}.length === 1 && !${shadowQ('.widget')}[0].hidden`), await page.eval(`${shadowQ('.fab')}[0].style.cssText`));
+    check('widget bar reads Marginalia by Hacktoolkit', (await page.eval(`${shadowQ('.widget .bar')}[0].textContent.replace(/\\s+/g, ' ').trim()`)).includes('Marginalia by Hacktoolkit'), await page.eval(`${shadowQ('.widget .bar')}[0].textContent`));
     check('widget hosts the extension\'s own panel page', (await page.eval(`${shadowQ('.widget iframe')}[0].getAttribute('src')`)) === `${LOCAL}/src/panel.html?embed=1`);
     check('widget opens beside the button', await page.eval(`(() => { const f = ${shadowQ('.fab')}[0].getBoundingClientRect(); const w = ${shadowQ('.widget')}[0].getBoundingClientRect(); return Math.abs(w.left - f.left) < 2 && w.top >= f.bottom; })()`));
     await page.eval(`window.__onMessage({ type: 'pn:widget', toggle: true }, {}, () => {});`);
