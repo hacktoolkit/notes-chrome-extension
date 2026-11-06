@@ -1,6 +1,5 @@
-LICENSE
-Makefile
+LICENSE.md
 README.md
 img
 manifest.json
-dist
+src

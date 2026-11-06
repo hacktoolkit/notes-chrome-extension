@@ -1,0 +1,24 @@
+Marginalia is for people who think while they browse. Write a note on any page and it is there the next time you land on that page, even when the URL is different.
+
+A NOTE THAT FOLLOWS THE PAGE
+A pull request and its Files tab. A Jira issue and its board link. A LinkedIn profile and its Experience page. A Google Doc in edit and view mode. One note, with dated entries, and a count on the toolbar icon so you know the page has one.
+
+A LOCAL RECORD OF WHAT YOU SAW
+Every time you save an entry or open the popup on a noted page, Marginalia keeps what the page looked like: title, metadata and text, stored only in your browser. Pages change and people edit their profiles; your captures do not. When a page differs from your last visit, the popup says so and shows what changed.
+
+PROFILE INSIGHTS
+On a profile page, the capture is read into a work history, and Marginalia points out what a careful reader would ask about: two full-time roles that overlap, two current roles, dates that run backwards, short stints, long gaps, a stated "10+ years" the visible history does not reach, and anything that changed since your last visit. It summarises years, employers and average tenure and builds a one-line card grouped by employer, ready to paste. These are questions to ask, never verdicts.
+
+REMIND ME, SNOOZE THAT TAB
+Remind me about this page in an hour, tonight, tomorrow, next week or at a time. Snooze a tab: close it now, get it back later.
+
+CAPTURE A QUOTE
+Select text, right-click, add it to the page's note.
+
+YOUR NOTES ARE FILES
+Every note is Markdown with YAML frontmatter that Obsidian reads natively. Download them all as a zip, with every capture alongside as plain text, import them back, or connect an Obsidian vault folder and have every save written straight into it.
+
+PRIVATE BY CONSTRUCTION
+No accounts, no server, no analytics, no network requests. Nothing runs on pages you merely visit; a page is only read when you act on it. Open source under the MIT license.
+
+Source: https://github.com/hacktoolkit/notes-chrome-extension
